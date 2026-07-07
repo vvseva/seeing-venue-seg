@@ -1,9 +1,7 @@
 <script lang="ts">
-  import Sidebar from './components/layout/Sidebar.svelte';
-  import GridWorld from './components/grid/GridWorld.svelte';
-  
-  // Import the stores to pass down to the visual layer
-  import { agentsStore, venuesStore, ghostReactionsStore } from './stores/simulationStore';
+  import Sidebar from '../components/layout/Sidebar.svelte';
+  import GridWorld from '../components/grid/GridWorld.svelte';
+  import { agentsStore, venuesStore, ghostReactionsStore } from '../stores/simulationStore';
 </script>
 
 <main class="exhibit-container">
@@ -13,19 +11,16 @@
   </header>
 
   <div class="exhibit-content">
-    
     <section class="simulation-canvas">
       <div class="grid-wrapper">
-        <GridWorld 
-          {agentsStore} 
-          {venuesStore} 
-          {ghostReactionsStore} 
+        <GridWorld
+          {agentsStore}
+          {venuesStore}
+          {ghostReactionsStore}
         />
       </div>
     </section>
 
     <Sidebar />
-    
   </div>
 </main>
-
