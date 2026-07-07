@@ -7,8 +7,8 @@
   export let cellSize: number;
   export let isDraggable: boolean = false;
   
-  $: x = venue.x * cellSize + 8;
-  $: y = venue.y * cellSize + 8;
+  $: tx = venue.x * cellSize + 8;
+  $: ty = venue.y * cellSize + 8;
   const size = cellSize - 16;
 
   function draggable(node: SVGElement) {
@@ -19,7 +19,7 @@
         d3.select(this).raise().classed("dragging", true);
       })
       .on("drag", (event) => {
-        d3.select(node).attr("x", event.x - size/2).attr("y", event.y - size/2);
+        d3.select(node).attr("transform", `translate(${event.x - size/2},${event.y - size/2})`);
 
         const hoverX = Math.max(0, Math.min(9, Math.floor(event.x / cellSize)));
         const hoverY = Math.max(0, Math.min(9, Math.floor(event.y / cellSize)));
@@ -36,7 +36,7 @@
 
         // Snap back if the venue is dropped outside bounds
         if (!success) {
-           d3.select(node).attr("x", x).attr("y", y);
+           d3.select(node).attr("transform", `translate(${tx},${ty})`);
         }
       });
 
@@ -45,31 +45,49 @@
   }
 </script>
 
-<rect
+<g
   use:draggable
-  {x}
-  {y}
-  width={size}
-  height={size}
-  fill={venue.color}
-  rx="6"
-  class="venue-rect"
+  transform="translate({tx},{ty})"
+  class="venue"
   class:draggable={isDraggable}
-/>
+>
+  <rect
+    x="0"
+    y="0"
+    width={size}
+    height={size}
+    fill={venue.color}
+    rx="8"
+    opacity="0.8"
+    stroke="#1f2937"
+    stroke-width="0"
+  />
+
+  <text
+    x={size / 2}    
+    y={size / 2 + 2}
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-size="{size * 0.8}px"
+    class="emoji"
+  >
+    🏛️
+  </text>
+</g>
 
 <style>
-  .venue-rect {
-    opacity: 0.6;
-    stroke: #333;
-    stroke-width: 2px;
-    transition: opacity 0.2s;
+  .venue {
+    transition: filter 0.2s;
   }
-  .venue-rect.draggable {
+  .venue.draggable {
     cursor: grab;
   }
-  .venue-rect.draggable:active, :global(.dragging) {
+  .venue.draggable:active, :global(.dragging) {
     cursor: grabbing;
-    opacity: 0.9;
     filter: drop-shadow(0px 8px 12px rgba(0,0,0,0.4));
+  }
+  .emoji {
+    user-select: none;
+    pointer-events: none;
   }
 </style>

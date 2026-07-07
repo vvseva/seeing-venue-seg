@@ -25,8 +25,8 @@ export class SimulationEngine {
   public tickCount: number;
 
   constructor(config: SimulationConfig = {}) {
-    this.width = config.width ?? 10;
-    this.height = config.height ?? 10;
+    this.width = config.width ?? 15;
+    this.height = config.height ?? 15;
     this.density = config.density ?? 0.7;
     this.similarityThreshold = config.similarityThreshold ?? 0.5;
     this.venueBoost = config.venueBoost ?? 0.2;

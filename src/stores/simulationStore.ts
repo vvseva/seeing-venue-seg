@@ -4,8 +4,8 @@ import type { Agent, Venue, ReactionPreview, SegregationMetrics } from '../engin
 
 // 1. Initialize the headless engine
 export const engine = new SimulationEngine({
-  width: 10,
-  height: 10,
+  width: 15,
+  height: 15,
   density: 0.8,
   similarityThreshold: 0.5,
   venueBoost: 0.2
@@ -28,7 +28,7 @@ let animationFrameId: number;
 export const isPlayingStore = writable<boolean>(false);
 
 const STABILITY_WINDOW = 12;
-const STABILITY_DELTA_THRESHOLD = 0.01;
+const STABILITY_DELTA_THRESHOLD = 0.02;
 
 function rollingMean(values: number[]): number {
   if (values.length === 0) return 0;

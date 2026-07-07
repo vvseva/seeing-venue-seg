@@ -11,9 +11,9 @@
   // Visuals react to either the engine state or the temporary ghost interaction
   $: isHappy = ghostReaction ? ghostReaction.hypotheticalHappiness : agent.isHappy;
   
-  // SVG positioning
-  $: cx = agent.x * cellSize + cellSize / 2;
-  $: cy = agent.y * cellSize + cellSize / 2;
+  // Calculate translation coordinates for the SVG Group
+  $: tx = agent.x * cellSize + cellSize / 2;
+  $: ty = agent.y * cellSize + cellSize / 2;
 
   // D3 Drag Binding via Svelte Action
  function draggable(node: SVGElement) {
@@ -25,7 +25,7 @@
         d3.select(this).raise().classed("dragging", true);
       })
       .on("drag", (event) => {
-        d3.select(node).attr("cx", event.x).attr("cy", event.y);
+        d3.select(node).attr("transform", `translate(${event.x},${event.y})`);
 
         // Clamping ensures calculations don't break if dragged outside the SVG
         const hoverX = Math.max(0, Math.min(9, Math.floor(event.x / cellSize)));
@@ -44,7 +44,8 @@
         // If the move failed (e.g., cell was occupied), explicitly snap the SVG back 
         // to Svelte's reactive coordinates to prevent the agent from getting stuck between cells.
         if (!success) {
-          d3.select(node).attr("cx", cx).attr("cy", cy);
+          // Snap back if dropped on an invalid/occupied cell
+          d3.select(node).attr("transform", `translate(${tx},${ty})`);
         }
       });
 
@@ -58,29 +59,47 @@
   }
 </script>
 
-<circle
+<g
   use:draggable
-  {cx}
-  {cy}
-  r={cellSize * 0.35}
-  fill={agent.color}
-  stroke={isHappy ? "#333" : "#fff"}
-  stroke-width="3"
-  stroke-dasharray={isHappy ? "none" : "4,4"}
+  transform="translate({tx},{ty})"
   class="agent"
-  class:draggable={isDraggable} 
-/>
+  class:draggable={isDraggable}
+>
+  <circle
+    cx="0"
+    cy="0"
+    r={cellSize * 0.35}
+    fill={agent.color}
+    stroke={isHappy ? "#1f2937" : "#facc15"}
+    stroke-width="0"
+    stroke-dasharray={isHappy ? "none" : "4,4"}
+  />
+  
+  <text
+    x="0"
+    y="-2" 
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-size="{cellSize * 0.5}px"
+    class="emoji"
+  >
+    {isHappy ? '😀' : '😞'}
+  </text>
+</g>
 
 <style>
   .agent {
-    transition: stroke-dasharray 0.2s, stroke 0.2s;
+    transition: opacity 0.2s;
   }
-  /* Only show the grab cursor when the narrative stage allows it */
   .agent.draggable {
     cursor: grab;
   }
   .agent.draggable:active, :global(.dragging) {
     cursor: grabbing;
     filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.3));
+  }
+  .emoji {
+    user-select: none; /* Prevents the user from accidentally highlighting the text */
+    pointer-events: none; /* Passes mouse events through to the group for dragging */
   }
 </style>
