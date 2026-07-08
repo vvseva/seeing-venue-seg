@@ -211,6 +211,37 @@ export class SimulationEngine {
     return null;
   }
 
+  private findNearestNonVenueCell(preferredX: number, preferredY: number): { x: number; y: number } | null {
+    if (!this.isWithinBounds(preferredX, preferredY)) {
+      return null;
+    }
+
+    const occupant = this.grid[preferredY][preferredX];
+    if (occupant === null || occupant.startsWith('agent_')) {
+      return { x: preferredX, y: preferredY };
+    }
+
+    const maxRadius = Math.max(this.width, this.height);
+
+    for (let radius = 1; radius <= maxRadius; radius++) {
+      for (let y = preferredY - radius; y <= preferredY + radius; y++) {
+        for (let x = preferredX - radius; x <= preferredX + radius; x++) {
+          if (!this.isWithinBounds(x, y)) continue;
+
+          const isOnRing = Math.max(Math.abs(x - preferredX), Math.abs(y - preferredY)) === radius;
+          if (!isOnRing) continue;
+
+          const ringOccupant = this.grid[y][x];
+          if (ringOccupant === null || ringOccupant.startsWith('agent_')) {
+            return { x, y };
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   private findRandomEmptyCell(excludeX?: number, excludeY?: number): { x: number; y: number } | null {
     const emptyCells: { x: number; y: number }[] = [];
 
@@ -772,16 +803,33 @@ export class SimulationEngine {
     const clampX = (x: number) => Math.max(1, Math.min(this.width - 2, x));
     const clampY = (y: number) => Math.max(1, Math.min(this.height - 2, y));
 
-    const placements: Array<{ id: string; x: number; y: number; color: EntityColor }> = [
+    const basePlacements: Array<{ id: string; x: number; y: number; color: EntityColor }> = [
       { id: 'v_0', x: clampX(quarterX), y: clampY(quarterY), color: 'red' },
-      { id: 'v_1', x: clampX(quarterX + 2), y: clampY(quarterY), color: 'green' },
-      { id: 'v_2', x: clampX(threeQuarterX - 2), y: clampY(threeQuarterY), color: 'red' },
-      { id: 'v_3', x: clampX(threeQuarterX), y: clampY(threeQuarterY), color: 'green' }
+      { id: 'v_1', x: clampX(threeQuarterX), y: clampY(quarterY), color: 'green' },
+      { id: 'v_2', x: clampX(quarterX), y: clampY(threeQuarterY), color: 'green' },
+      { id: 'v_3', x: clampX(threeQuarterX), y: clampY(threeQuarterY), color: 'red' }
     ];
 
-    for (const placement of placements) {
+    for (const placement of basePlacements) {
       this.placeVenue(placement.id, placement.x, placement.y, placement.color);
     }
+
+    // Add one integrated counterpart near each base venue with the opposite color.
+    basePlacements.forEach((basePlacement, index) => {
+      const oppositeColor: EntityColor = basePlacement.color === 'red' ? 'green' : 'red';
+      const towardCenterX = Math.sign(Math.floor(this.width / 2) - basePlacement.x);
+      const towardCenterY = Math.sign(Math.floor(this.height / 2) - basePlacement.y);
+      const fallbackDirX = index % 2 === 0 ? 1 : -1;
+      const fallbackDirY = index < 2 ? 1 : -1;
+
+      const preferredX = clampX(basePlacement.x + (towardCenterX || fallbackDirX) * 2);
+      const preferredY = clampY(basePlacement.y + (towardCenterY || fallbackDirY) * 2);
+      const integratedSpot = this.findNearestNonVenueCell(preferredX, preferredY);
+
+      if (!integratedSpot) return;
+
+      this.placeVenue(`v_${4 + index}`, integratedSpot.x, integratedSpot.y, oppositeColor);
+    });
 
     this.updateAllUtilities();
   }

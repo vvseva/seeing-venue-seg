@@ -4,7 +4,7 @@
   import VenueVisual from './VenueVisual.svelte';
   import type { Agent, ReactionPreview, Venue } from '../../engine/types/models';
   import type { Writable } from 'svelte/store';
-  import { hoveredVenueId } from '../../stores/simulationStore';
+  import { hoveredVenueId, simulationActions } from '../../stores/simulationStore';
   import { currentChapterIndex } from '../../stores/narrativeStore'; 
   import { WORLD_HEIGHT, WORLD_WIDTH } from '../../engine/world';
   
@@ -19,6 +19,8 @@
   export let hoveredVenueStore: Writable<string | null> = hoveredVenueId;
   export let allowInteractions = true;
   export let compactMode = false;
+  export let previewVenueMove: (id: string, targetX: number, targetY: number) => void = simulationActions.previewVenueMove;
+  export let commitVenueMove: (id: string, targetX: number, targetY: number) => boolean = simulationActions.commitVenueMove;
 
   const width = WORLD_WIDTH;
   const height = WORLD_HEIGHT;
@@ -103,6 +105,8 @@
         boardHeight={height}
         {hoveredVenueStore}
         isDraggable={allowInteractions && $currentChapterIndex >= 5}
+        onPreviewMove={previewVenueMove}
+        onCommitMove={commitVenueMove}
       />
     {/each}
   </g>

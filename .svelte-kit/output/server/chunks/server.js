@@ -513,7 +513,7 @@ function createSubscriber(start) {
 	let stop;
 	return () => {
 		if (effect_tracking()) {
-			get(version);
+			get$1(version);
 			render_effect(() => {
 				if (subscribers === 0) stop = untrack(() => start(() => increment(version)));
 				subscribers += 1;
@@ -778,7 +778,7 @@ var Boundary = class {
 	}
 	get_effect_pending() {
 		this.#effect_pending_subscriber();
-		return get(this.#effect_pending);
+		return get$1(this.#effect_pending);
 	}
 	/** @param {unknown} error */
 	error(error) {
@@ -1896,7 +1896,7 @@ function proxy(value) {
 				sources.set(prop, s);
 			}
 			if (s !== void 0) {
-				var v = get(s);
+				var v = get$1(s);
 				return v === UNINITIALIZED ? void 0 : v;
 			}
 			return Reflect.get(target, prop, receiver);
@@ -1905,7 +1905,7 @@ function proxy(value) {
 			var descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
 			if (descriptor && "value" in descriptor) {
 				var s = sources.get(prop);
-				if (s) descriptor.value = get(s);
+				if (s) descriptor.value = get$1(s);
 			} else if (descriptor === void 0) {
 				var source = sources.get(prop);
 				var value = source?.v;
@@ -1929,7 +1929,7 @@ function proxy(value) {
 					});
 					sources.set(prop, s);
 				}
-				if (get(s) === UNINITIALIZED) return false;
+				if (get$1(s) === UNINITIALIZED) return false;
 			}
 			return has;
 		},
@@ -1968,7 +1968,7 @@ function proxy(value) {
 			return true;
 		},
 		ownKeys(target) {
-			get(version);
+			get$1(version);
 			var own_keys = Reflect.ownKeys(target).filter((key) => {
 				var source = sources.get(key);
 				return source === void 0 || source.v !== UNINITIALIZED;
@@ -2595,7 +2595,7 @@ function update_effect(effect) {
 * @param {Value<V>} signal
 * @returns {V}
 */
-function get(signal) {
+function get$1(signal) {
 	var is_derived = (signal.f & 2) !== 0;
 	captured_signals?.add(signal);
 	if (active_reaction !== null && !untracking) {
@@ -2861,6 +2861,18 @@ function derived$1(stores, fn, initial_value) {
 			started = false;
 		};
 	});
+}
+/**
+* Get the current value from a store by subscribing and immediately unsubscribing.
+*
+* @template T
+* @param {Readable<T>} store
+* @returns {T}
+*/
+function get(store) {
+	let value;
+	subscribe_to_store(store, (_) => value = _)();
+	return value;
 }
 //#endregion
 //#region node_modules/svelte/src/utils.js
@@ -4221,4 +4233,4 @@ function derived(fn) {
 	};
 }
 //#endregion
-export { state_proxy_unmount as $, get as A, set as B, escape_html as C, writable as D, readable as E, create_text as F, push$1 as G, boundary as H, get_first_child as I, hydrating as J, async_mode_flag as K, get_next_sibling as L, set_active_reaction as M, component_root as N, active_effect as O, clear_text_content as P, lifecycle_double_unmount as Q, init_operations as R, attr as S, derived$1 as T, component_context as U, flushSync as V, pop$1 as W, set_hydrating as X, set_hydrate_node as Y, hydration_mismatch as Z, ssr_context as _, render as a, array_from as at, lifecycle_function_unavailable as b, stringify as c, noop as ct, get_render_context as d, HYDRATION_ERROR as et, createContext as f, setContext as g, hasContext as h, ensure_array_like as i, STATE_SYMBOL as it, set_active_effect as j, active_reaction as k, unsubscribe_stores as l, run as lt, getContext as m, bind_props as n, experimental_async_required as nt, slot as o, define_property as ot, getAllContexts as p, hydrate_node as q, derived as r, LEGACY_PROPS as rt, store_get as s, fallback as st, attr_class as t, hydration_failed as tt, get_user_code_location as u, hydratable_clobbering as v, is_passive_event as w, getAbortSignal as x, hydratable_serialization_failed as y, mutable_source as z };
+export { lifecycle_double_unmount as $, active_reaction as A, mutable_source as B, escape_html as C, readable as D, get as E, clear_text_content as F, pop$1 as G, flushSync as H, create_text as I, hydrate_node as J, push$1 as K, get_first_child as L, set_active_effect as M, set_active_reaction as N, writable as O, component_root as P, hydration_mismatch as Q, get_next_sibling as R, attr as S, derived$1 as T, boundary as U, set as V, component_context as W, set_hydrate_node as X, hydrating as Y, set_hydrating as Z, ssr_context as _, render as a, STATE_SYMBOL as at, lifecycle_function_unavailable as b, stringify as c, fallback as ct, get_render_context as d, state_proxy_unmount as et, createContext as f, setContext as g, hasContext as h, ensure_array_like as i, LEGACY_PROPS as it, get$1 as j, active_effect as k, unsubscribe_stores as l, noop as lt, getContext as m, bind_props as n, hydration_failed as nt, slot as o, array_from as ot, getAllContexts as p, async_mode_flag as q, derived as r, experimental_async_required as rt, store_get as s, define_property as st, attr_class as t, HYDRATION_ERROR as tt, get_user_code_location as u, run as ut, hydratable_clobbering as v, is_passive_event as w, getAbortSignal as x, hydratable_serialization_failed as y, init_operations as z };

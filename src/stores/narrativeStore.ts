@@ -15,6 +15,7 @@ export interface Chapter {
     | 'RUN_USER_POLICY'
     | 'RUN_EXEMPLAR_POLICY'
     | 'RUN_SIDE_BY_SIDE_COMPARE'
+    | 'RUN_MONTE_CARLO_COMPARE'
     | 'RESET';
 }
 
@@ -85,7 +86,7 @@ const chaptersData: Chapter[] = [
   {
     id: 9,
     title: "Exemplar Integrated Policy",
-    content: "Now compare your policy with an exemplar integrated venue placement. The model keeps four venues and places them far from each other and from boundaries with alternating colors. We run 25 ticks and compare average indexes.",
+    content: "Now compare your policy with an exemplar integrated venue placement. The model creates four base venues and adds four nearby integrated counterpart venues of opposite colors, then runs 25 ticks to compare average indexes.",
     actionLabel: "Run Exemplar Policy (25 Ticks)",
     dispatchAction: 'RUN_EXEMPLAR_POLICY'
   },
@@ -95,8 +96,17 @@ const chaptersData: Chapter[] = [
     content: "Both worlds now run in parallel: your venue policy on the left and the exemplar integrated policy on the right. Compare segregation trajectories in colorblind-friendly chart lines.",
     actionLabel: "Run Side-by-Side Comparison",
     dispatchAction: 'RUN_SIDE_BY_SIDE_COMPARE'
+  },
+  {
+    id: 11,
+    title: "Robust Comparison Across Randomness",
+    content: "To reduce noise from random movement, we now run each policy 10 times while the two worlds animate at a faster pace. You can still adjust venues on the Your Policy grid and rerun to see new spaghetti lines and updated mean trajectories.",
+    actionLabel: "Run 10x Robust Comparison",
+    dispatchAction: 'RUN_MONTE_CARLO_COMPARE'
   }
 ];
+
+export const chapters = chaptersData;
 
 // The core reactive index
 export const currentChapterIndex = writable<number>(0);
@@ -114,6 +124,10 @@ export const narrativeActions = {
   },
   prev() {
     currentChapterIndex.update(n => Math.max(n - 1, 0));
+  },
+  goTo(index: number) {
+    const boundedIndex = Math.max(0, Math.min(index, chaptersData.length - 1));
+    currentChapterIndex.set(boundedIndex);
   },
   reset() {
     currentChapterIndex.set(0);

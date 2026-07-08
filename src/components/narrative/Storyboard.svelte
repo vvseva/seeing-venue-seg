@@ -2,13 +2,14 @@
   import { currentChapter, currentChapterIndex, narrativeActions } from '../../stores/narrativeStore';
   import { isGeneratingVenuesStore, simulationActions } from '../../stores/simulationStore';
 
-  const finalChapterIndex = 10; // Updated to match new chapter length
+  const finalChapterIndex = 11; // Updated to match new chapter length
   let isAdvancing = false;
 
   async function nextPhase() {
     if (isAdvancing) return;
     isAdvancing = true;
     simulationActions.resetStabilityWindow();
+    let shouldAdvance = true;
 
     try {
       // 1. Fire the specific action if the chapter demands it
@@ -29,15 +30,17 @@
           simulationActions.play();
         }
       } else if ($currentChapter.dispatchAction === 'RUN_USER_POLICY') {
-        await simulationActions.runUserPolicyEvaluation();
+        shouldAdvance = await simulationActions.runUserPolicyEvaluation();
       } else if ($currentChapter.dispatchAction === 'RUN_EXEMPLAR_POLICY') {
-        await simulationActions.runExemplarPolicyEvaluation();
+        shouldAdvance = await simulationActions.runExemplarPolicyEvaluation();
       } else if ($currentChapter.dispatchAction === 'RUN_SIDE_BY_SIDE_COMPARE') {
         await simulationActions.runSideBySideComparison();
+      } else if ($currentChapter.dispatchAction === 'RUN_MONTE_CARLO_COMPARE') {
+        await simulationActions.runMonteCarloComparison();
       }
 
       // 2. Advance the narrative
-      if ($currentChapterIndex < finalChapterIndex) {
+      if (shouldAdvance && $currentChapterIndex < finalChapterIndex) {
         narrativeActions.next();
       }
       simulationActions.resetStabilityWindow();

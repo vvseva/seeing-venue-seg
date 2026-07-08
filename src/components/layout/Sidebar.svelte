@@ -1,6 +1,8 @@
 <script lang="ts">
   import Storyboard from '../narrative/Storyboard.svelte';
   import LiveCharts from '../charts/LiveCharts.svelte';
+
+  export let showCharts = true;
 </script>
 
 <aside class="sidebar">
@@ -8,7 +10,9 @@
     <Storyboard />
   </div>
   
-  <div class="panel charts-panel">
-    <LiveCharts />
-  </div>
+  {#if showCharts}
+    <div class="panel charts-panel">
+      <LiveCharts />
+    </div>
+  {/if}
 </aside>

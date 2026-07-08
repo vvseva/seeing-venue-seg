@@ -68,10 +68,114 @@ p {
   background-color: var(--panel-bg);
 }
 
+.exhibit-header-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 460px);
+  gap: 1rem 1.25rem;
+  align-items: start;
+}
+
 .subtitle {
   margin: 0.25rem 0 0 0;
   color: var(--text-muted);
   font-size: 1rem;
+}
+
+.chapter-progress {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: #fbfcfd;
+  padding: 0.7rem 0.8rem;
+}
+
+.chapter-progress-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.chapter-progress-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.chapter-progress-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chapter-nav-btn {
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.chapter-nav-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.chapter-nav-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chapter-stepper {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0.32rem;
+}
+
+.chapter-step {
+  height: 1.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  background: white;
+  color: #475569;
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.chapter-step:hover {
+  transform: translateY(-1px);
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.chapter-step.is-complete {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.38);
+  color: #0f766e;
+}
+
+.chapter-step.is-active {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: white;
+}
+
+.chapter-progress-title {
+  margin: 0.48rem 0 0;
+  font-size: 0.78rem;
+  color: #334155;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .exhibit-content {
@@ -158,6 +262,11 @@ p {
   min-height: 0;
 }
 
+.simulation-canvas.chapter11-layout {
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+
 .simulation-controls {
   display: flex;
   justify-content: flex-end;
@@ -222,6 +331,11 @@ p {
   font-size: 0.9rem;
   color: #4b5563;
   text-align: center;
+}
+
+.chapter11-charts-panel {
+  width: min(100%, 940px);
+  margin-top: 0.35rem;
 }
 
 .board {
@@ -294,6 +408,13 @@ p {
   min-width: 0;
 }
 
+.chart-container.metric-highlighted {
+  outline: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 0.35rem;
+  background: #f8fbff;
+}
+
 .chart-container path {
   transition: d 0.3s ease-in-out;
 }
@@ -309,6 +430,90 @@ p {
   margin: 0 0 0.5rem;
   font-size: 0.875rem;
   color: #555;
+}
+
+.chart-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.45rem;
+}
+
+.tiny-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.67rem;
+  font-weight: 700;
+  line-height: 1.2;
+  border: 1px solid transparent;
+}
+
+.tiny-badge-you-soft {
+  background: rgba(0, 114, 178, 0.14);
+  color: #0b4f7e;
+  border-color: rgba(0, 114, 178, 0.3);
+}
+
+.tiny-badge-exemplar-soft {
+  background: rgba(213, 94, 0, 0.14);
+  color: #8a3f00;
+  border-color: rgba(213, 94, 0, 0.3);
+}
+
+.tiny-badge-you-strong {
+  background: rgba(0, 114, 178, 0.2);
+  color: #063f66;
+  border-color: rgba(0, 114, 178, 0.42);
+}
+
+.tiny-badge-exemplar-strong {
+  background: rgba(213, 94, 0, 0.2);
+  color: #6c2f00;
+  border-color: rgba(213, 94, 0, 0.42);
+}
+
+.tiny-badge-neutral {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.chart-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: #4b5563;
+}
+
+.metric-explanation {
+  margin: 0 0 0.6rem;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+}
+
+.metric-explanation-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #1e3a8a;
+}
+
+.metric-explanation-line {
+  margin: 0.2rem 0;
+  font-size: 0.74rem;
+  color: #1f2937;
+  line-height: 1.35;
+}
+
+.chart-direct-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 3px;
 }
 
 .chart-container svg {
@@ -359,6 +564,10 @@ p {
   }
 
   @media (max-width: 1100px) {
+    .exhibit-header-grid {
+      grid-template-columns: 1fr;
+    }
+
     .exhibit-content {
       flex-direction: column;
     }
@@ -401,5 +610,13 @@ p {
 
     .simulation-canvas {
       padding: 0.75rem;
+    }
+
+    .chapter-progress {
+      padding: 0.65rem;
+    }
+
+    .chapter-stepper {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
     }
   }

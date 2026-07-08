@@ -78,6 +78,10 @@ export const compareExemplarVenuesStore = writable<Venue[]>([]);
 
 export const compareUserMetricsHistoryStore = writable<ComparisonTickRecord[]>([]);
 export const compareExemplarMetricsHistoryStore = writable<ComparisonTickRecord[]>([]);
+export const monteCarloUserRunsStore = writable<ComparisonTickRecord[][]>([]);
+export const monteCarloExemplarRunsStore = writable<ComparisonTickRecord[][]>([]);
+export const monteCarloUserAverageStore = writable<ComparisonTickRecord[]>([]);
+export const monteCarloExemplarAverageStore = writable<ComparisonTickRecord[]>([]);
 
 export const compareUserGhostReactionsStore = writable<ReactionPreview[]>([]);
 export const compareExemplarGhostReactionsStore = writable<ReactionPreview[]>([]);
@@ -89,6 +93,10 @@ export const isPlayingStore = writable<boolean>(false);
 const STABILITY_WINDOW = 25;
 const STABILITY_DELTA_THRESHOLD = 0.02;
 const CHAPTER_TWO_SHORT_RUN_TICKS = 50;
+const COMPARISON_TICKS = 50;
+const MONTE_CARLO_RUNS = 10;
+const COMPARISON_ANIMATION_DELAY_MS = 200;
+const FAST_COMPARISON_ANIMATION_DELAY_MS = 85;
 
 let stabilityStartIndex = 0;
 let policyBaselineAgentsSnapshot: Agent[] | null = null;
@@ -153,6 +161,12 @@ function snapshotVenuePlacement(): Venue[] {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function snapshotVenuePlacementFromEngine(targetEngine: SimulationEngine): Venue[] {
+  return Array.from(targetEngine.venues.values())
+    .map((venue) => ({ ...venue }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 function snapshotAgentsForPolicyBaseline(): Agent[] {
   return engine
     .getAgentsSnapshot()
@@ -195,6 +209,10 @@ function resetComparisonStores() {
   compareExemplarVenuesStore.set([]);
   compareUserMetricsHistoryStore.set([]);
   compareExemplarMetricsHistoryStore.set([]);
+  monteCarloUserRunsStore.set([]);
+  monteCarloExemplarRunsStore.set([]);
+  monteCarloUserAverageStore.set([]);
+  monteCarloExemplarAverageStore.set([]);
   compareUserGhostReactionsStore.set([]);
   compareExemplarGhostReactionsStore.set([]);
 }
@@ -205,6 +223,65 @@ function recordComparisonMetrics() {
 
   compareUserMetricsHistoryStore.update((history) => [...history, userMetrics]);
   compareExemplarMetricsHistoryStore.update((history) => [...history, exemplarMetrics]);
+}
+
+function runBackgroundTrajectory(
+  baselineAgents: Agent[],
+  placement: Venue[],
+  ticks: number
+): ComparisonTickRecord[] {
+  const backgroundEngine = new SimulationEngine({
+    width: WORLD_WIDTH,
+    height: WORLD_HEIGHT,
+    density: 0.8,
+    similarityThreshold: 0.5,
+    venueBoost: 0.2
+  });
+
+  backgroundEngine.initEmptyGrid();
+  backgroundEngine.initializeScenario(baselineAgents, placement);
+
+  const history: ComparisonTickRecord[] = [backgroundEngine.getMetrics()];
+  for (let i = 0; i < ticks; i++) {
+    backgroundEngine.tick();
+    history.push(backgroundEngine.getMetrics());
+  }
+
+  return history;
+}
+
+function averageComparisonRuns(runs: ComparisonTickRecord[][]): ComparisonTickRecord[] {
+  if (runs.length === 0) return [];
+
+  const maxLength = runs.reduce((max, run) => Math.max(max, run.length), 0);
+  const averaged: ComparisonTickRecord[] = [];
+
+  for (let index = 0; index < maxLength; index++) {
+    const points = runs
+      .map((run) => run[index] ?? run.at(-1))
+      .filter((point): point is ComparisonTickRecord => Boolean(point));
+
+    if (points.length === 0) continue;
+
+    const sums = points.reduce(
+      (acc, point) => {
+        acc.dissimilarity += point.dissimilarity;
+        acc.exposure += point.exposure;
+        acc.clustering += point.clustering;
+        return acc;
+      },
+      { dissimilarity: 0, exposure: 0, clustering: 0 }
+    );
+
+    averaged.push({
+      tick: points[0].tick,
+      dissimilarity: sums.dissimilarity / points.length,
+      exposure: sums.exposure / points.length,
+      clustering: sums.clustering / points.length
+    });
+  }
+
+  return averaged;
 }
 
 // 4. Public Action Functions
@@ -259,53 +336,66 @@ export const simulationActions = {
     loop();
   },
 
-  playForTicks(ticks: number = CHAPTER_TWO_SHORT_RUN_TICKS, onComplete?: () => void) {
-    if (get(isPlayingStore)) return;
+  playForTicks(ticks: number = CHAPTER_TWO_SHORT_RUN_TICKS, onComplete?: () => void): Promise<boolean> {
+    if (get(isPlayingStore)) return Promise.resolve(false);
 
     const totalTicks = Math.max(1, Math.floor(ticks));
     let ticksRemaining = totalTicks;
     isPlayingStore.set(true);
 
-    const loop = () => {
-      const isStillActive = this.step();
-      ticksRemaining--;
+    return new Promise<boolean>((resolve) => {
+      const loop = () => {
+        if (!get(isPlayingStore)) {
+          resolve(false);
+          return;
+        }
 
-      if (isStillActive && ticksRemaining > 0 && get(isPlayingStore)) {
-        setTimeout(() => {
-          animationFrameId = requestAnimationFrame(loop);
-        }, 200);
-      } else {
+        const isStillActive = this.step();
+        ticksRemaining--;
+
+        if (isStillActive && ticksRemaining > 0) {
+          setTimeout(() => {
+            animationFrameId = requestAnimationFrame(loop);
+          }, 200);
+          return;
+        }
+
+        const completed = ticksRemaining <= 0 || !isStillActive;
         this.stop();
-        onComplete?.();
-      }
-    };
+        if (completed) {
+          onComplete?.();
+        }
+        resolve(completed);
+      };
 
-    loop();
+      loop();
+    });
   },
 
   capturePolicyTargetFromLast25Ticks() {
     policyTargetAveragesStore.set(calculateAveragesOverLastTicks(25));
   },
 
-  runUserPolicyEvaluation() {
+  async runUserPolicyEvaluation() {
     this.stop();
     resetStabilityWindowBaseline();
     policyBaselineAgentsSnapshot = snapshotAgentsForPolicyBaseline();
     isComparisonModeStore.set(false);
 
     const placement = snapshotVenuePlacement();
-    return new Promise<void>((resolve) => {
-      this.playForTicks(25, () => {
-        userPolicyResultStore.set({
-          placement,
-          averages: calculateAveragesOverLastTicks(25)
-        });
-        resolve();
+    const completed = await this.playForTicks(25);
+
+    if (completed) {
+      userPolicyResultStore.set({
+        placement,
+        averages: calculateAveragesOverLastTicks(25)
       });
-    });
+    }
+
+    return completed;
   },
 
-  runExemplarPolicyEvaluation() {
+  async runExemplarPolicyEvaluation() {
     this.stop();
     if (!policyBaselineAgentsSnapshot) {
       policyBaselineAgentsSnapshot = snapshotAgentsForPolicyBaseline();
@@ -316,15 +406,16 @@ export const simulationActions = {
     resetStabilityWindowBaseline();
 
     const placement = snapshotVenuePlacement();
-    return new Promise<void>((resolve) => {
-      this.playForTicks(25, () => {
-        exemplarPolicyResultStore.set({
-          placement,
-          averages: calculateAveragesOverLastTicks(25)
-        });
-        resolve();
+    const completed = await this.playForTicks(25);
+
+    if (completed) {
+      exemplarPolicyResultStore.set({
+        placement,
+        averages: calculateAveragesOverLastTicks(25)
       });
-    });
+    }
+
+    return completed;
   },
 
   runSideBySideComparison() {
@@ -347,7 +438,7 @@ export const simulationActions = {
     isComparisonModeStore.set(true);
 
     return new Promise<void>((resolve) => {
-      let ticksRemaining = 25;
+      let ticksRemaining = COMPARISON_TICKS;
       const loop = () => {
         const userActive = compareUserEngine.tick();
         const exemplarActive = compareExemplarEngine.tick();
@@ -359,7 +450,62 @@ export const simulationActions = {
         if ((userActive || exemplarActive) && ticksRemaining > 0) {
           setTimeout(() => {
             requestAnimationFrame(loop);
-          }, 200);
+          }, COMPARISON_ANIMATION_DELAY_MS);
+          return;
+        }
+
+        resolve();
+      };
+
+      loop();
+    });
+  },
+
+  async runMonteCarloComparison() {
+    this.stop();
+
+    const userResult = get(userPolicyResultStore);
+    const exemplarResult = get(exemplarPolicyResultStore);
+    const baselineAgents = policyBaselineAgentsSnapshot ?? snapshotAgentsForPolicyBaseline();
+    const userPlacement = userResult?.placement ?? snapshotVenuePlacement();
+    const exemplarPlacement = exemplarResult?.placement ?? snapshotVenuePlacement();
+
+    compareUserEngine.initializeScenario(baselineAgents, userPlacement);
+    compareExemplarEngine.initializeScenario(baselineAgents, exemplarPlacement);
+    compareUserHoveredVenueIdStore.set(null);
+    compareExemplarHoveredVenueIdStore.set(null);
+
+    compareUserMetricsHistoryStore.set([compareUserEngine.getMetrics()]);
+    compareExemplarMetricsHistoryStore.set([compareExemplarEngine.getMetrics()]);
+    syncComparisonStores();
+    isComparisonModeStore.set(true);
+
+    const userRuns = Array.from({ length: MONTE_CARLO_RUNS }, () =>
+      runBackgroundTrajectory(baselineAgents, userPlacement, COMPARISON_TICKS)
+    );
+    const exemplarRuns = Array.from({ length: MONTE_CARLO_RUNS }, () =>
+      runBackgroundTrajectory(baselineAgents, exemplarPlacement, COMPARISON_TICKS)
+    );
+
+    monteCarloUserRunsStore.set(userRuns);
+    monteCarloExemplarRunsStore.set(exemplarRuns);
+    monteCarloUserAverageStore.set(averageComparisonRuns(userRuns));
+    monteCarloExemplarAverageStore.set(averageComparisonRuns(exemplarRuns));
+
+    return new Promise<void>((resolve) => {
+      let ticksRemaining = COMPARISON_TICKS;
+      const loop = () => {
+        const userActive = compareUserEngine.tick();
+        const exemplarActive = compareExemplarEngine.tick();
+        ticksRemaining--;
+
+        syncComparisonStores();
+        recordComparisonMetrics();
+
+        if ((userActive || exemplarActive) && ticksRemaining > 0) {
+          setTimeout(() => {
+            requestAnimationFrame(loop);
+          }, FAST_COMPARISON_ANIMATION_DELAY_MS);
           return;
         }
 
@@ -461,6 +607,12 @@ export const simulationActions = {
     ghostReactionsStore.set(reactions);
   },
 
+  previewCompareUserVenueMove(id: string, targetX: number, targetY: number) {
+    this.stop();
+    const reactions = compareUserEngine.previewVenueReactions(id, targetX, targetY);
+    compareUserGhostReactionsStore.set(reactions);
+  },
+
   commitVenueMove(id: string, targetX: number, targetY: number) {
     this.stop();
     const success = engine.moveVenue(id, targetX, targetY);
@@ -470,6 +622,32 @@ export const simulationActions = {
       resetStabilityWindowBaseline();
     }
     this.clearPreview();
+    return success;
+  },
+
+  commitCompareUserVenueMove(id: string, targetX: number, targetY: number) {
+    this.stop();
+    const success = compareUserEngine.moveVenue(id, targetX, targetY);
+    if (success) {
+      compareUserGhostReactionsStore.set([]);
+      syncComparisonStores();
+      const placement = snapshotVenuePlacementFromEngine(compareUserEngine);
+      userPolicyResultStore.update((currentResult) => {
+        if (!currentResult) {
+          return {
+            placement,
+            averages: calculateAveragesOverLastTicks(25)
+          };
+        }
+
+        return {
+          ...currentResult,
+          placement
+        };
+      });
+    }
+
+    compareUserGhostReactionsStore.set([]);
     return success;
   }
 };

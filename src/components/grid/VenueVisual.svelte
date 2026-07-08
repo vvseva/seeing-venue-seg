@@ -10,6 +10,8 @@
   export let boardHeight: number;
   export let hoveredVenueStore: Writable<string | null>;
   export let isDraggable: boolean = false;
+  export let onPreviewMove: (id: string, targetX: number, targetY: number) => void = simulationActions.previewVenueMove;
+  export let onCommitMove: (id: string, targetX: number, targetY: number) => boolean = simulationActions.commitVenueMove;
   
   $: tx = venue.x * cellSize + 8;
   $: ty = venue.y * cellSize + 8;
@@ -32,7 +34,7 @@
         const hoverX = clampCell(Math.floor(event.x / cellSize), boardWidth);
         const hoverY = clampCell(Math.floor(event.y / cellSize), boardHeight);
 
-        simulationActions.previewVenueMove(venue.id, hoverX, hoverY);
+        onPreviewMove(venue.id, hoverX, hoverY);
       })
       .on("end", (event) => {
         d3.select(node).classed("dragging", false);
@@ -40,7 +42,7 @@
         const targetX = clampCell(Math.floor(event.x / cellSize), boardWidth);
         const targetY = clampCell(Math.floor(event.y / cellSize), boardHeight);
 
-        const success = simulationActions.commitVenueMove(venue.id, targetX, targetY);
+        const success = onCommitMove(venue.id, targetX, targetY);
 
         // Snap back if the venue is dropped outside bounds
         if (!success) {

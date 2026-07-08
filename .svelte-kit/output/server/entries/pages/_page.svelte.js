@@ -1,5 +1,5 @@
-import { n as onDestroy } from "../../chunks/index-server.js";
-import { C as escape_html, D as writable, S as attr, T as derived, c as stringify, i as ensure_array_like, l as unsubscribe_stores, n as bind_props, s as store_get, st as fallback, t as attr_class } from "../../chunks/server.js";
+import { n as onDestroy, r as tick } from "../../chunks/index-server.js";
+import { C as escape_html, E as get, O as writable, S as attr, T as derived, c as stringify, ct as fallback, i as ensure_array_like, l as unsubscribe_stores, n as bind_props, s as store_get, t as attr_class } from "../../chunks/server.js";
 import "../../chunks/index-server2.js";
 import * as d3 from "d3";
 //#region src/stores/narrativeStore.ts
@@ -68,7 +68,7 @@ var chaptersData = [
 	{
 		id: 9,
 		title: "Exemplar Integrated Policy",
-		content: "Now compare your policy with an exemplar integrated venue placement. The model keeps four venues and places them far from each other and from boundaries with alternating colors. We run 25 ticks and compare average indexes.",
+		content: "Now compare your policy with an exemplar integrated venue placement. The model creates four base venues and adds four nearby integrated counterpart venues of opposite colors, then runs 25 ticks to compare average indexes.",
 		actionLabel: "Run Exemplar Policy (25 Ticks)",
 		dispatchAction: "RUN_EXEMPLAR_POLICY"
 	},
@@ -78,8 +78,16 @@ var chaptersData = [
 		content: "Both worlds now run in parallel: your venue policy on the left and the exemplar integrated policy on the right. Compare segregation trajectories in colorblind-friendly chart lines.",
 		actionLabel: "Run Side-by-Side Comparison",
 		dispatchAction: "RUN_SIDE_BY_SIDE_COMPARE"
+	},
+	{
+		id: 11,
+		title: "Robust Comparison Across Randomness",
+		content: "To reduce noise from random movement, we now run each policy 10 times while the two worlds animate at a faster pace. You can still adjust venues on the Your Policy grid and rerun to see new spaghetti lines and updated mean trajectories.",
+		actionLabel: "Run 10x Robust Comparison",
+		dispatchAction: "RUN_MONTE_CARLO_COMPARE"
 	}
 ];
+var chapters = chaptersData;
 var currentChapterIndex = writable(0);
 var currentChapter = derived(currentChapterIndex, ($index) => chaptersData[$index]);
 //#endregion
@@ -284,6 +292,25 @@ var SimulationEngine = class {
 			x,
 			y
 		};
+		return null;
+	}
+	findNearestNonVenueCell(preferredX, preferredY) {
+		if (!this.isWithinBounds(preferredX, preferredY)) return null;
+		const occupant = this.grid[preferredY][preferredX];
+		if (occupant === null || occupant.startsWith("agent_")) return {
+			x: preferredX,
+			y: preferredY
+		};
+		const maxRadius = Math.max(this.width, this.height);
+		for (let radius = 1; radius <= maxRadius; radius++) for (let y = preferredY - radius; y <= preferredY + radius; y++) for (let x = preferredX - radius; x <= preferredX + radius; x++) {
+			if (!this.isWithinBounds(x, y)) continue;
+			if (!(Math.max(Math.abs(x - preferredX), Math.abs(y - preferredY)) === radius)) continue;
+			const ringOccupant = this.grid[y][x];
+			if (ringOccupant === null || ringOccupant.startsWith("agent_")) return {
+				x,
+				y
+			};
+		}
 		return null;
 	}
 	findRandomEmptyCell(excludeX, excludeY) {
@@ -648,7 +675,7 @@ var SimulationEngine = class {
 		const threeQuarterY = Math.floor(3 * this.height / 4);
 		const clampX = (x) => Math.max(1, Math.min(this.width - 2, x));
 		const clampY = (y) => Math.max(1, Math.min(this.height - 2, y));
-		const placements = [
+		const basePlacements = [
 			{
 				id: "v_0",
 				x: clampX(quarterX),
@@ -657,24 +684,36 @@ var SimulationEngine = class {
 			},
 			{
 				id: "v_1",
-				x: clampX(quarterX + 2),
+				x: clampX(threeQuarterX),
 				y: clampY(quarterY),
 				color: "green"
 			},
 			{
 				id: "v_2",
-				x: clampX(threeQuarterX - 2),
+				x: clampX(quarterX),
 				y: clampY(threeQuarterY),
-				color: "red"
+				color: "green"
 			},
 			{
 				id: "v_3",
 				x: clampX(threeQuarterX),
 				y: clampY(threeQuarterY),
-				color: "green"
+				color: "red"
 			}
 		];
-		for (const placement of placements) this.placeVenue(placement.id, placement.x, placement.y, placement.color);
+		for (const placement of basePlacements) this.placeVenue(placement.id, placement.x, placement.y, placement.color);
+		basePlacements.forEach((basePlacement, index) => {
+			const oppositeColor = basePlacement.color === "red" ? "green" : "red";
+			const towardCenterX = Math.sign(Math.floor(this.width / 2) - basePlacement.x);
+			const towardCenterY = Math.sign(Math.floor(this.height / 2) - basePlacement.y);
+			const fallbackDirX = index % 2 === 0 ? 1 : -1;
+			const fallbackDirY = index < 2 ? 1 : -1;
+			const preferredX = clampX(basePlacement.x + (towardCenterX || fallbackDirX) * 2);
+			const preferredY = clampY(basePlacement.y + (towardCenterY || fallbackDirY) * 2);
+			const integratedSpot = this.findNearestNonVenueCell(preferredX, preferredY);
+			if (!integratedSpot) return;
+			this.placeVenue(`v_${4 + index}`, integratedSpot.x, integratedSpot.y, oppositeColor);
+		});
 		this.updateAllUtilities();
 	}
 	getAgentsSnapshot() {
@@ -733,7 +772,7 @@ compareUserEngine.initEmptyGrid();
 compareExemplarEngine.initEmptyGrid();
 var agentsStore = writable(Array.from(engine.agents.values()));
 var venuesStore = writable(Array.from(engine.venues.values()));
-writable(engine.tickCount);
+var tickStore = writable(engine.tickCount);
 var metricsHistoryStore = writable([engine.getMetrics()]);
 var ghostReactionsStore = writable([]);
 var hoveredVenueId = writable(null);
@@ -743,16 +782,435 @@ var isGeneratingVenuesStore = writable(false);
 var policyTargetAveragesStore = writable(null);
 var userPolicyResultStore = writable(null);
 var exemplarPolicyResultStore = writable(null);
-writable(false);
+var isComparisonModeStore = writable(false);
 var compareUserAgentsStore = writable([]);
 var compareUserVenuesStore = writable([]);
 var compareExemplarAgentsStore = writable([]);
 var compareExemplarVenuesStore = writable([]);
 var compareUserMetricsHistoryStore = writable([]);
 var compareExemplarMetricsHistoryStore = writable([]);
+var monteCarloUserRunsStore = writable([]);
+var monteCarloExemplarRunsStore = writable([]);
+var monteCarloUserAverageStore = writable([]);
+var monteCarloExemplarAverageStore = writable([]);
 var compareUserGhostReactionsStore = writable([]);
 var compareExemplarGhostReactionsStore = writable([]);
+var animationFrameId;
 var isPlayingStore = writable(false);
+var STABILITY_WINDOW = 25;
+var STABILITY_DELTA_THRESHOLD = .02;
+var CHAPTER_TWO_SHORT_RUN_TICKS = 50;
+var COMPARISON_TICKS = 50;
+var MONTE_CARLO_RUNS = 10;
+var COMPARISON_ANIMATION_DELAY_MS = 200;
+var FAST_COMPARISON_ANIMATION_DELAY_MS = 85;
+var stabilityStartIndex = 0;
+var policyBaselineAgentsSnapshot = null;
+function rollingMean(values) {
+	if (values.length === 0) return 0;
+	return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+function isMetricStable(history, selector) {
+	const requiredLength = STABILITY_WINDOW * 2;
+	if (history.length < requiredLength) return false;
+	const recent = history.slice(-25).map(selector);
+	const previous = history.slice(-50, -25).map(selector);
+	return Math.abs(rollingMean(recent) - rollingMean(previous)) <= STABILITY_DELTA_THRESHOLD;
+}
+function shouldAutoPauseForStability(history) {
+	const scopedHistory = history.slice(stabilityStartIndex);
+	return isMetricStable(scopedHistory, (m) => m.dissimilarity) && isMetricStable(scopedHistory, (m) => m.exposure) && isMetricStable(scopedHistory, (m) => m.clustering);
+}
+function resetStabilityWindowBaseline() {
+	const history = get(metricsHistoryStore);
+	stabilityStartIndex = Math.max(0, history.length - 1);
+}
+function calculateAveragesOverLastTicks(ticks) {
+	const sample = get(metricsHistoryStore).slice(-Math.max(1, ticks));
+	const sum = sample.reduce((acc, metric) => {
+		acc.dissimilarity += metric.dissimilarity;
+		acc.exposure += metric.exposure;
+		acc.clustering += metric.clustering;
+		return acc;
+	}, {
+		dissimilarity: 0,
+		exposure: 0,
+		clustering: 0
+	});
+	const sampleSize = sample.length;
+	return {
+		dissimilarity: sampleSize > 0 ? sum.dissimilarity / sampleSize : 0,
+		exposure: sampleSize > 0 ? sum.exposure / sampleSize : 0,
+		clustering: sampleSize > 0 ? sum.clustering / sampleSize : 0,
+		sampleSize
+	};
+}
+function snapshotVenuePlacement() {
+	return Array.from(engine.venues.values()).map((venue) => ({ ...venue })).sort((a, b) => a.id.localeCompare(b.id));
+}
+function snapshotVenuePlacementFromEngine(targetEngine) {
+	return Array.from(targetEngine.venues.values()).map((venue) => ({ ...venue })).sort((a, b) => a.id.localeCompare(b.id));
+}
+function snapshotAgentsForPolicyBaseline() {
+	return engine.getAgentsSnapshot().map((agent) => ({ ...agent })).sort((a, b) => a.id.localeCompare(b.id));
+}
+function syncStores() {
+	agentsStore.set(Array.from(engine.agents.values()));
+	venuesStore.set(Array.from(engine.venues.values()));
+	tickStore.set(engine.tickCount);
+}
+function recordCurrentMetrics() {
+	const nextMetrics = engine.getMetrics();
+	metricsHistoryStore.update((history) => {
+		if (history.at(-1)?.tick === nextMetrics.tick) return [...history.slice(0, -1), nextMetrics];
+		return [...history, nextMetrics];
+	});
+}
+function syncComparisonStores() {
+	compareUserAgentsStore.set(Array.from(compareUserEngine.agents.values()));
+	compareUserVenuesStore.set(Array.from(compareUserEngine.venues.values()));
+	compareExemplarAgentsStore.set(Array.from(compareExemplarEngine.agents.values()));
+	compareExemplarVenuesStore.set(Array.from(compareExemplarEngine.venues.values()));
+}
+function resetComparisonStores() {
+	isComparisonModeStore.set(false);
+	compareUserHoveredVenueIdStore.set(null);
+	compareExemplarHoveredVenueIdStore.set(null);
+	compareUserAgentsStore.set([]);
+	compareUserVenuesStore.set([]);
+	compareExemplarAgentsStore.set([]);
+	compareExemplarVenuesStore.set([]);
+	compareUserMetricsHistoryStore.set([]);
+	compareExemplarMetricsHistoryStore.set([]);
+	monteCarloUserRunsStore.set([]);
+	monteCarloExemplarRunsStore.set([]);
+	monteCarloUserAverageStore.set([]);
+	monteCarloExemplarAverageStore.set([]);
+	compareUserGhostReactionsStore.set([]);
+	compareExemplarGhostReactionsStore.set([]);
+}
+function recordComparisonMetrics() {
+	const userMetrics = compareUserEngine.getMetrics();
+	const exemplarMetrics = compareExemplarEngine.getMetrics();
+	compareUserMetricsHistoryStore.update((history) => [...history, userMetrics]);
+	compareExemplarMetricsHistoryStore.update((history) => [...history, exemplarMetrics]);
+}
+function runBackgroundTrajectory(baselineAgents, placement, ticks) {
+	const backgroundEngine = new SimulationEngine({
+		width: 12,
+		height: 12,
+		density: .8,
+		similarityThreshold: .5,
+		venueBoost: .2
+	});
+	backgroundEngine.initEmptyGrid();
+	backgroundEngine.initializeScenario(baselineAgents, placement);
+	const history = [backgroundEngine.getMetrics()];
+	for (let i = 0; i < ticks; i++) {
+		backgroundEngine.tick();
+		history.push(backgroundEngine.getMetrics());
+	}
+	return history;
+}
+function averageComparisonRuns(runs) {
+	if (runs.length === 0) return [];
+	const maxLength = runs.reduce((max, run) => Math.max(max, run.length), 0);
+	const averaged = [];
+	for (let index = 0; index < maxLength; index++) {
+		const points = runs.map((run) => run[index] ?? run.at(-1)).filter((point) => Boolean(point));
+		if (points.length === 0) continue;
+		const sums = points.reduce((acc, point) => {
+			acc.dissimilarity += point.dissimilarity;
+			acc.exposure += point.exposure;
+			acc.clustering += point.clustering;
+			return acc;
+		}, {
+			dissimilarity: 0,
+			exposure: 0,
+			clustering: 0
+		});
+		averaged.push({
+			tick: points[0].tick,
+			dissimilarity: sums.dissimilarity / points.length,
+			exposure: sums.exposure / points.length,
+			clustering: sums.clustering / points.length
+		});
+	}
+	return averaged;
+}
+var simulationActions = {
+	resetStabilityWindow() {
+		resetStabilityWindowBaseline();
+	},
+	reset() {
+		engine.initEmptyGrid();
+		syncStores();
+		hoveredVenueId.set(null);
+		metricsHistoryStore.set([engine.getMetrics()]);
+		policyTargetAveragesStore.set(null);
+		userPolicyResultStore.set(null);
+		exemplarPolicyResultStore.set(null);
+		policyBaselineAgentsSnapshot = null;
+		resetComparisonStores();
+		resetStabilityWindowBaseline();
+		this.stop();
+	},
+	step() {
+		const isStillActive = engine.tick();
+		syncStores();
+		recordCurrentMetrics();
+		return isStillActive;
+	},
+	play() {
+		if (get(isPlayingStore)) return;
+		isPlayingStore.set(true);
+		const loop = () => {
+			const isStillActive = this.step();
+			const reachedStableRollingMean = shouldAutoPauseForStability(get(metricsHistoryStore));
+			if (isStillActive && !reachedStableRollingMean && get(isPlayingStore)) setTimeout(() => {
+				animationFrameId = requestAnimationFrame(loop);
+			}, 200);
+			else this.stop();
+		};
+		loop();
+	},
+	playForTicks(ticks = CHAPTER_TWO_SHORT_RUN_TICKS, onComplete) {
+		if (get(isPlayingStore)) return Promise.resolve(false);
+		let ticksRemaining = Math.max(1, Math.floor(ticks));
+		isPlayingStore.set(true);
+		return new Promise((resolve) => {
+			const loop = () => {
+				if (!get(isPlayingStore)) {
+					resolve(false);
+					return;
+				}
+				const isStillActive = this.step();
+				ticksRemaining--;
+				if (isStillActive && ticksRemaining > 0) {
+					setTimeout(() => {
+						animationFrameId = requestAnimationFrame(loop);
+					}, 200);
+					return;
+				}
+				const completed = ticksRemaining <= 0 || !isStillActive;
+				this.stop();
+				if (completed) onComplete?.();
+				resolve(completed);
+			};
+			loop();
+		});
+	},
+	capturePolicyTargetFromLast25Ticks() {
+		policyTargetAveragesStore.set(calculateAveragesOverLastTicks(25));
+	},
+	async runUserPolicyEvaluation() {
+		this.stop();
+		resetStabilityWindowBaseline();
+		policyBaselineAgentsSnapshot = snapshotAgentsForPolicyBaseline();
+		isComparisonModeStore.set(false);
+		const placement = snapshotVenuePlacement();
+		const completed = await this.playForTicks(25);
+		if (completed) userPolicyResultStore.set({
+			placement,
+			averages: calculateAveragesOverLastTicks(25)
+		});
+		return completed;
+	},
+	async runExemplarPolicyEvaluation() {
+		this.stop();
+		if (!policyBaselineAgentsSnapshot) policyBaselineAgentsSnapshot = snapshotAgentsForPolicyBaseline();
+		engine.applyIntegratedVenuePolicy();
+		syncStores();
+		recordCurrentMetrics();
+		resetStabilityWindowBaseline();
+		const placement = snapshotVenuePlacement();
+		const completed = await this.playForTicks(25);
+		if (completed) exemplarPolicyResultStore.set({
+			placement,
+			averages: calculateAveragesOverLastTicks(25)
+		});
+		return completed;
+	},
+	runSideBySideComparison() {
+		this.stop();
+		const userResult = get(userPolicyResultStore);
+		const exemplarResult = get(exemplarPolicyResultStore);
+		const baselineAgents = policyBaselineAgentsSnapshot ?? snapshotAgentsForPolicyBaseline();
+		const userPlacement = userResult?.placement ?? snapshotVenuePlacement();
+		const exemplarPlacement = exemplarResult?.placement ?? snapshotVenuePlacement();
+		compareUserEngine.initializeScenario(baselineAgents, userPlacement);
+		compareExemplarEngine.initializeScenario(baselineAgents, exemplarPlacement);
+		compareUserHoveredVenueIdStore.set(null);
+		compareExemplarHoveredVenueIdStore.set(null);
+		compareUserMetricsHistoryStore.set([compareUserEngine.getMetrics()]);
+		compareExemplarMetricsHistoryStore.set([compareExemplarEngine.getMetrics()]);
+		syncComparisonStores();
+		isComparisonModeStore.set(true);
+		return new Promise((resolve) => {
+			let ticksRemaining = COMPARISON_TICKS;
+			const loop = () => {
+				const userActive = compareUserEngine.tick();
+				const exemplarActive = compareExemplarEngine.tick();
+				ticksRemaining--;
+				syncComparisonStores();
+				recordComparisonMetrics();
+				if ((userActive || exemplarActive) && ticksRemaining > 0) {
+					setTimeout(() => {
+						requestAnimationFrame(loop);
+					}, COMPARISON_ANIMATION_DELAY_MS);
+					return;
+				}
+				resolve();
+			};
+			loop();
+		});
+	},
+	async runMonteCarloComparison() {
+		this.stop();
+		const userResult = get(userPolicyResultStore);
+		const exemplarResult = get(exemplarPolicyResultStore);
+		const baselineAgents = policyBaselineAgentsSnapshot ?? snapshotAgentsForPolicyBaseline();
+		const userPlacement = userResult?.placement ?? snapshotVenuePlacement();
+		const exemplarPlacement = exemplarResult?.placement ?? snapshotVenuePlacement();
+		compareUserEngine.initializeScenario(baselineAgents, userPlacement);
+		compareExemplarEngine.initializeScenario(baselineAgents, exemplarPlacement);
+		compareUserHoveredVenueIdStore.set(null);
+		compareExemplarHoveredVenueIdStore.set(null);
+		compareUserMetricsHistoryStore.set([compareUserEngine.getMetrics()]);
+		compareExemplarMetricsHistoryStore.set([compareExemplarEngine.getMetrics()]);
+		syncComparisonStores();
+		isComparisonModeStore.set(true);
+		const userRuns = Array.from({ length: MONTE_CARLO_RUNS }, () => runBackgroundTrajectory(baselineAgents, userPlacement, COMPARISON_TICKS));
+		const exemplarRuns = Array.from({ length: MONTE_CARLO_RUNS }, () => runBackgroundTrajectory(baselineAgents, exemplarPlacement, COMPARISON_TICKS));
+		monteCarloUserRunsStore.set(userRuns);
+		monteCarloExemplarRunsStore.set(exemplarRuns);
+		monteCarloUserAverageStore.set(averageComparisonRuns(userRuns));
+		monteCarloExemplarAverageStore.set(averageComparisonRuns(exemplarRuns));
+		return new Promise((resolve) => {
+			let ticksRemaining = COMPARISON_TICKS;
+			const loop = () => {
+				const userActive = compareUserEngine.tick();
+				const exemplarActive = compareExemplarEngine.tick();
+				ticksRemaining--;
+				syncComparisonStores();
+				recordComparisonMetrics();
+				if ((userActive || exemplarActive) && ticksRemaining > 0) {
+					setTimeout(() => {
+						requestAnimationFrame(loop);
+					}, FAST_COMPARISON_ANIMATION_DELAY_MS);
+					return;
+				}
+				resolve();
+			};
+			loop();
+		});
+	},
+	stop() {
+		isPlayingStore.set(false);
+		cancelAnimationFrame(animationFrameId);
+	},
+	spawnProtagonist() {
+		this.stop();
+		engine.spawnProtagonist("red");
+		syncStores();
+		resetStabilityWindowBaseline();
+	},
+	spawnTutorialGroups() {
+		this.stop();
+		engine.spawnTutorialGroups();
+		syncStores();
+		resetStabilityWindowBaseline();
+	},
+	spawnPopulation() {
+		this.stop();
+		engine.spawnPopulation();
+		syncStores();
+		resetStabilityWindowBaseline();
+	},
+	previewMove(color, id, targetX, targetY) {
+		this.stop();
+		const reactions = engine.previewLocalReactions(color, id, targetX, targetY);
+		ghostReactionsStore.set(reactions);
+	},
+	clearPreview() {
+		ghostReactionsStore.set([]);
+	},
+	commitMove(id, targetX, targetY) {
+		this.stop();
+		const success = engine.moveAgent(id, targetX, targetY);
+		if (success) {
+			syncStores();
+			recordCurrentMetrics();
+			resetStabilityWindowBaseline();
+		}
+		this.clearPreview();
+		return success;
+	},
+	/**
+	* Translates the NetLogo K-Medoids Voronoi logic into the TS engine.
+	* You can expand the SimulationEngine class to handle this internally, 
+	* but triggering it from here syncs the UI immediately.
+	*/
+	async generateEmergentVenues() {
+		if (get(isGeneratingVenuesStore)) return;
+		isGeneratingVenuesStore.set(true);
+		this.stop();
+		await tick();
+		await new Promise((resolve) => {
+			requestAnimationFrame(() => resolve());
+		});
+		try {
+			engine.generateVenuesLloyds(20);
+			syncStores();
+			recordCurrentMetrics();
+			resetStabilityWindowBaseline();
+		} finally {
+			isGeneratingVenuesStore.set(false);
+		}
+	},
+	previewVenueMove(id, targetX, targetY) {
+		this.stop();
+		const reactions = engine.previewVenueReactions(id, targetX, targetY);
+		ghostReactionsStore.set(reactions);
+	},
+	previewCompareUserVenueMove(id, targetX, targetY) {
+		this.stop();
+		const reactions = compareUserEngine.previewVenueReactions(id, targetX, targetY);
+		compareUserGhostReactionsStore.set(reactions);
+	},
+	commitVenueMove(id, targetX, targetY) {
+		this.stop();
+		const success = engine.moveVenue(id, targetX, targetY);
+		if (success) {
+			syncStores();
+			recordCurrentMetrics();
+			resetStabilityWindowBaseline();
+		}
+		this.clearPreview();
+		return success;
+	},
+	commitCompareUserVenueMove(id, targetX, targetY) {
+		this.stop();
+		const success = compareUserEngine.moveVenue(id, targetX, targetY);
+		if (success) {
+			compareUserGhostReactionsStore.set([]);
+			syncComparisonStores();
+			const placement = snapshotVenuePlacementFromEngine(compareUserEngine);
+			userPolicyResultStore.update((currentResult) => {
+				if (!currentResult) return {
+					placement,
+					averages: calculateAveragesOverLastTicks(25)
+				};
+				return {
+					...currentResult,
+					placement
+				};
+			});
+		}
+		compareUserGhostReactionsStore.set([]);
+		return success;
+	}
+};
 //#endregion
 //#region src/components/narrative/Storyboard.svelte
 function Storyboard($$renderer, $$props) {
@@ -816,25 +1274,38 @@ function LiveCharts($$renderer, $$props) {
 			}
 		];
 		let hoveredMetric = null;
-		function createXScale(history, comparisonUser = [], comparisonExemplar = []) {
-			const maxTick = Math.max(d3.max(history, (metric) => metric.tick) || 0, d3.max(comparisonUser, (metric) => metric.tick) || 0, d3.max(comparisonExemplar, (metric) => metric.tick) || 0, 10);
+		let hoveredLineInfo = null;
+		let highlightedMetricKey = null;
+		const metricExplanations = {
+			exposure: {
+				shortTitle: "Exposure (Front Porch Test)",
+				howCalculated: "For each person in the target group, we count immediate neighbors and compute the share who are from the same group. Then we average that share across the whole target group.",
+				meaning: "High values mean the average person mostly sees their own group in day-to-day local surroundings, indicating isolation."
+			},
+			dissimilarity: {
+				shortTitle: "Dissimilarity (Neighborhood Mix Test)",
+				howCalculated: "We split the grid into equal tracts, compare each tract's group mix to the city-wide mix, and sum those local gaps.",
+				meaning: "It estimates how unevenly groups are spread and how much relocation would be needed to make all neighborhoods similarly mixed."
+			},
+			clustering: {
+				shortTitle: "Spatial Clustering (Bird's-Eye View Test)",
+				howCalculated: "We measure distances between agents, weighting close same-group pairs much more than far-apart pairs, then normalize against the full population pattern.",
+				meaning: "High values mean same-group neighborhoods are clumped together into larger continuous enclaves rather than scattered."
+			}
+		};
+		function createXScale(seriesList) {
+			const nonEmptySeries = seriesList.filter((series) => series.length > 0);
+			const maxTick = Math.max(...nonEmptySeries.map((series) => d3.max(series, (metric) => metric.tick) || 0), 10);
 			return d3.scaleLinear().domain([0, maxTick]).range([0, innerWidth]);
 		}
-		function createYScale(history, metricKey, comparisonUser = [], comparisonExemplar = []) {
-			const recentValues = history.slice(-50).map((metric) => metric[metricKey]);
-			const recentComparisonUserValues = comparisonUser.slice(-50).map((metric) => metric[metricKey]);
-			const recentComparisonExemplarValues = comparisonExemplar.slice(-50).map((metric) => metric[metricKey]);
-			const referenceValues = [
+		function createYScale(metricKey, seriesList, includeReferenceValues) {
+			const recentValues = seriesList.flatMap((series) => series.slice(-50)).map((metric) => metric[metricKey]);
+			const referenceValues = includeReferenceValues ? [
 				store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)?.[metricKey] ?? 0,
 				store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages[metricKey] ?? 0,
 				store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages[metricKey] ?? 0
-			];
-			const allValues = [
-				...recentValues,
-				...recentComparisonUserValues,
-				...recentComparisonExemplarValues,
-				...referenceValues
-			];
+			] : [];
+			const allValues = [...recentValues, ...referenceValues];
 			const minValue = d3.min(allValues) ?? 0;
 			const maxValue = d3.max(allValues) ?? 1;
 			const range = maxValue - minValue;
@@ -843,9 +1314,7 @@ function LiveCharts($$renderer, $$props) {
 			const yMax = Math.max(yMin + .08, maxValue + padding);
 			return d3.scaleLinear().domain([yMin, yMax]).range([innerHeight, 0]);
 		}
-		function createPathData(history, metricKey, comparisonUser = [], comparisonExemplar = []) {
-			const xScale = createXScale(history, comparisonUser, comparisonExemplar);
-			const yScale = createYScale(history, metricKey, comparisonUser, comparisonExemplar);
+		function createPathData(history, metricKey, xScale, yScale) {
 			return d3.line().x((metric) => xScale(metric.tick)).y((metric) => yScale(metric[metricKey])).curve(d3.curveMonotoneX)(history) || "";
 		}
 		function getMetricValue(metric, metricKey) {
@@ -855,49 +1324,103 @@ function LiveCharts($$renderer, $$props) {
 			if (!averages) return null;
 			return averages[key];
 		}
+		function clipSeriesToTick(series, maxTick) {
+			return series.filter((point) => point.tick <= maxTick);
+		}
 		$: metricsHistory = store_get($$store_subs ??= {}, "$metricsHistoryStore", metricsHistoryStore);
 		$: latestMetric = metricsHistory.at(-1);
 		$$renderer.push(`<div class="charts-stack"><!--[-->`);
 		const each_array = ensure_array_like(metricConfigs);
-		for (let $$index_1 = 0, $$length = each_array.length; $$index_1 < $$length; $$index_1++) {
-			let metricConfig = each_array[$$index_1];
+		for (let $$index_3 = 0, $$length = each_array.length; $$index_3 < $$length; $$index_3++) {
+			let metricConfig = each_array[$$index_3];
 			const comparisonUserHistory = store_get($$store_subs ??= {}, "$compareUserMetricsHistoryStore", compareUserMetricsHistoryStore);
 			const comparisonExemplarHistory = store_get($$store_subs ??= {}, "$compareExemplarMetricsHistoryStore", compareExemplarMetricsHistoryStore);
-			const isSideBySideStage = store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 10 && comparisonUserHistory.length > 0 && comparisonExemplarHistory.length > 0;
-			const primaryHistory = isSideBySideStage ? comparisonUserHistory : metricsHistory;
-			const secondaryHistory = isSideBySideStage ? comparisonExemplarHistory : [];
-			const xScale = createXScale(primaryHistory, secondaryHistory);
-			const yScale = createYScale(primaryHistory, metricConfig.key, secondaryHistory);
-			const primaryPath = createPathData(primaryHistory, metricConfig.key, secondaryHistory);
-			const secondaryPath = createPathData(secondaryHistory, metricConfig.key, secondaryHistory);
+			const monteCarloUserRuns = store_get($$store_subs ??= {}, "$monteCarloUserRunsStore", monteCarloUserRunsStore);
+			const monteCarloExemplarRuns = store_get($$store_subs ??= {}, "$monteCarloExemplarRunsStore", monteCarloExemplarRunsStore);
+			const monteCarloUserAverage = store_get($$store_subs ??= {}, "$monteCarloUserAverageStore", monteCarloUserAverageStore);
+			const monteCarloExemplarAverage = store_get($$store_subs ??= {}, "$monteCarloExemplarAverageStore", monteCarloExemplarAverageStore);
+			const isMonteCarloStage = store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 11 && monteCarloUserAverage.length > 0 && monteCarloExemplarAverage.length > 0;
+			const isSideBySideStage = !isMonteCarloStage && store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 10 && comparisonUserHistory.length > 0 && comparisonExemplarHistory.length > 0;
+			const maxAnimatedTick = Math.min(comparisonUserHistory.at(-1)?.tick ?? 0, comparisonExemplarHistory.at(-1)?.tick ?? 0);
+			const visibleMonteCarloUserRuns = isMonteCarloStage ? monteCarloUserRuns.map((run) => clipSeriesToTick(run, maxAnimatedTick)) : [];
+			const visibleMonteCarloExemplarRuns = isMonteCarloStage ? monteCarloExemplarRuns.map((run) => clipSeriesToTick(run, maxAnimatedTick)) : [];
+			const visibleMonteCarloUserAverage = isMonteCarloStage ? clipSeriesToTick(monteCarloUserAverage, maxAnimatedTick) : [];
+			const visibleMonteCarloExemplarAverage = isMonteCarloStage ? clipSeriesToTick(monteCarloExemplarAverage, maxAnimatedTick) : [];
+			const primaryHistory = isMonteCarloStage ? visibleMonteCarloUserAverage : isSideBySideStage ? comparisonUserHistory : metricsHistory;
+			const secondaryHistory = isMonteCarloStage ? visibleMonteCarloExemplarAverage : isSideBySideStage ? comparisonExemplarHistory : [];
+			const monteCarloSeries = isMonteCarloStage ? [
+				...visibleMonteCarloUserRuns,
+				...visibleMonteCarloExemplarRuns,
+				visibleMonteCarloUserAverage,
+				visibleMonteCarloExemplarAverage
+			] : [];
+			const chartSeries = isMonteCarloStage ? monteCarloSeries : [primaryHistory, secondaryHistory];
+			const xScale = createXScale(chartSeries);
+			const yScale = createYScale(metricConfig.key, chartSeries, !isSideBySideStage && !isMonteCarloStage);
+			const primaryPath = createPathData(primaryHistory, metricConfig.key, xScale, yScale);
+			const secondaryPath = createPathData(secondaryHistory, metricConfig.key, xScale, yScale);
 			const latestPrimaryMetric = primaryHistory.at(-1);
 			const latestSecondaryMetric = secondaryHistory.at(-1);
-			$$renderer.push(`<div class="chart-container"><h3>${escape_html(metricConfig.title)}</h3> <p class="chart-value">`);
-			if (isSideBySideStage && latestPrimaryMetric && latestSecondaryMetric) {
+			$$renderer.push(`<div${attr_class("chart-container", void 0, { "metric-highlighted": highlightedMetricKey === metricConfig.key })} role="presentation"><h3>${escape_html(metricConfig.title)}</h3> `);
+			if (highlightedMetricKey === metricConfig.key) {
 				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<div class="metric-explanation" role="note" aria-live="polite"><p class="metric-explanation-title">${escape_html(metricExplanations[metricConfig.key].shortTitle)}</p> <p class="metric-explanation-line"><strong>How it is calculated:</strong> ${escape_html(metricExplanations[metricConfig.key].howCalculated)}</p> <p class="metric-explanation-line"><strong>What it tells us:</strong> ${escape_html(metricExplanations[metricConfig.key].meaning)}</p></div>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]--> <div class="chart-badges">`);
+			if (isMonteCarloStage) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<span class="tiny-badge tiny-badge-you-soft">Your runs</span> <span class="tiny-badge tiny-badge-exemplar-soft">Exemplar runs</span> <span class="tiny-badge tiny-badge-you-strong">Your mean</span> <span class="tiny-badge tiny-badge-exemplar-strong">Exemplar mean</span>`);
+			} else if (isSideBySideStage) {
+				$$renderer.push("<!--[1-->");
+				$$renderer.push(`<span class="tiny-badge tiny-badge-you-strong">Your trajectory</span> <span class="tiny-badge tiny-badge-exemplar-strong">Exemplar trajectory</span>`);
+			} else {
+				$$renderer.push("<!--[-1-->");
+				$$renderer.push(`<span class="tiny-badge tiny-badge-neutral">Live metric</span> `);
+				if (getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key) !== null) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<span class="tiny-badge tiny-badge-neutral">Target avg</span>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]--> `);
+				if (getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key) !== null) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<span class="tiny-badge tiny-badge-you-soft">Your avg</span>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]--> `);
+				if (getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key) !== null) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<span class="tiny-badge tiny-badge-exemplar-soft">Exemplar avg</span>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+			}
+			$$renderer.push(`<!--]--></div> <p class="chart-value">`);
+			if (isMonteCarloStage && latestPrimaryMetric && latestSecondaryMetric) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`Tick ${escape_html(latestPrimaryMetric.tick)}: Mean You ${escape_html(getMetricValue(latestPrimaryMetric, metricConfig.key).toFixed(3))} | Mean Exemplar ${escape_html(getMetricValue(latestSecondaryMetric, metricConfig.key).toFixed(3))}`);
+			} else if (isSideBySideStage && latestPrimaryMetric && latestSecondaryMetric) {
+				$$renderer.push("<!--[1-->");
 				$$renderer.push(`Tick ${escape_html(latestPrimaryMetric.tick)}: You ${escape_html(getMetricValue(latestPrimaryMetric, metricConfig.key).toFixed(3))} | Exemplar ${escape_html(getMetricValue(latestSecondaryMetric, metricConfig.key).toFixed(3))}`);
 			} else if (void 0 === metricConfig.key) {
-				$$renderer.push("<!--[1-->");
+				$$renderer.push("<!--[2-->");
 				$$renderer.push(`Tick ${escape_html(hoveredMetric.metric.tick)}: ${escape_html(getMetricValue(hoveredMetric.metric, metricConfig.key).toFixed(3))}`);
 			} else if (latestMetric) {
-				$$renderer.push("<!--[2-->");
+				$$renderer.push("<!--[3-->");
 				$$renderer.push(`Tick ${escape_html(latestMetric.tick)}: ${escape_html(getMetricValue(latestMetric, metricConfig.key).toFixed(3))}`);
 			} else {
 				$$renderer.push("<!--[-1-->");
 				$$renderer.push(`Waiting for simulation data...`);
 			}
 			$$renderer.push(`<!--]--></p> `);
-			if (!isSideBySideStage && store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)) {
+			if (!isSideBySideStage && !isMonteCarloStage && store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<p class="chart-value">Target avg (25 ticks): ${escape_html(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)[metricConfig.key].toFixed(3))}</p>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]--> `);
-			if (!isSideBySideStage && store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)) {
+			if (!isSideBySideStage && !isMonteCarloStage && store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<p class="chart-value">Your policy avg: ${escape_html(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore).averages[metricConfig.key].toFixed(3))}</p>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]--> `);
-			if (!isSideBySideStage && store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)) {
+			if (!isSideBySideStage && !isMonteCarloStage && store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<p class="chart-value">Exemplar avg: ${escape_html(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore).averages[metricConfig.key].toFixed(3))}</p>`);
 			} else $$renderer.push("<!--[-1-->");
@@ -906,19 +1429,83 @@ function LiveCharts($$renderer, $$props) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<p class="chart-value">Blue: your policy trajectory | Orange: exemplar trajectory</p>`);
 			} else $$renderer.push("<!--[-1-->");
-			$$renderer.push(`<!--]--> <svg${attr("viewBox", `0 0 ${width} ${height}`)} preserveAspectRatio="none" role="img"${attr("aria-label", `Interactive chart for ${metricConfig.title}`)}><g${attr("transform", `translate(${margin.left},${margin.top})`)}><!--[-->`);
+			$$renderer.push(`<!--]--> `);
+			if (isMonteCarloStage) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<p class="chart-value">10 runs per policy. Thin lines: individual runs | Bold lines: average trajectories.</p>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]--> <p class="chart-hint">`);
+			if (void 0 === metricConfig.key) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<strong>${escape_html(hoveredLineInfo.title)}:</strong> ${escape_html(hoveredLineInfo.description)}`);
+			} else if (isMonteCarloStage) {
+				$$renderer.push("<!--[1-->");
+				$$renderer.push(`Hover a line to see whether it is one random run or the average across runs.`);
+			} else if (isSideBySideStage) {
+				$$renderer.push("<!--[2-->");
+				$$renderer.push(`Hover a line to see which policy trajectory it represents.`);
+			} else {
+				$$renderer.push("<!--[-1-->");
+				$$renderer.push(`Hover solid and dashed lines to see exactly what each reference means.`);
+			}
+			$$renderer.push(`<!--]--></p> <svg${attr("viewBox", `0 0 ${width} ${height}`)} preserveAspectRatio="none" role="img"${attr("aria-label", `Interactive chart for ${metricConfig.title}`)}><g${attr("transform", `translate(${margin.left},${margin.top})`)}><!--[-->`);
 			const each_array_1 = ensure_array_like(yScale.ticks(4));
 			for (let $$index = 0, $$length = each_array_1.length; $$index < $$length; $$index++) {
 				let tick = each_array_1[$$index];
 				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(tick))}${attr("y2", yScale(tick))} stroke="#eee"></line><text x="-5"${attr("y", yScale(tick) + 4)} text-anchor="end" font-size="10" fill="#888">${escape_html(tick.toFixed(2))}</text>`);
 			}
 			$$renderer.push(`<!--]-->`);
-			if (isSideBySideStage) {
+			if (isMonteCarloStage) {
 				$$renderer.push("<!--[0-->");
-				$$renderer.push(`<path${attr("d", primaryPath)} fill="none"${attr("stroke", COMPARISON_USER_COLOR)} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.92"></path>`);
+				$$renderer.push(`<!--[-->`);
+				const each_array_2 = ensure_array_like(visibleMonteCarloUserRuns);
+				for (let runIndex = 0, $$length = each_array_2.length; runIndex < $$length; runIndex++) {
+					let run = each_array_2[runIndex];
+					$$renderer.push(`<path${attr("d", createPathData(run, metricConfig.key, xScale, yScale))} fill="none"${attr("stroke", COMPARISON_USER_COLOR)} stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" opacity="0.14"></path><path${attr("d", createPathData(run, metricConfig.key, xScale, yScale))} fill="none" stroke="transparent" stroke-width="10" role="presentation"></path>`);
+				}
+				$$renderer.push(`<!--]--><!--[-->`);
+				const each_array_3 = ensure_array_like(visibleMonteCarloExemplarRuns);
+				for (let runIndex = 0, $$length = each_array_3.length; runIndex < $$length; runIndex++) {
+					let run = each_array_3[runIndex];
+					$$renderer.push(`<path${attr("d", createPathData(run, metricConfig.key, xScale, yScale))} fill="none"${attr("stroke", COMPARISON_EXEMPLAR_COLOR)} stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" opacity="0.14"></path><path${attr("d", createPathData(run, metricConfig.key, xScale, yScale))} fill="none" stroke="transparent" stroke-width="10" role="presentation"></path>`);
+				}
+				$$renderer.push(`<!--]--><path${attr("d", primaryPath)} fill="none"${attr("stroke", COMPARISON_USER_COLOR)} stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" opacity="0.96" role="presentation"></path><path${attr("d", secondaryPath)} fill="none"${attr("stroke", COMPARISON_EXEMPLAR_COLOR)} stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round" opacity="0.96" role="presentation"></path>`);
+				if (latestPrimaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<text${attr("x", innerWidth - 2)}${attr("y", Math.max(10, yScale(getMetricValue(latestPrimaryMetric, metricConfig.key)) - 8))} text-anchor="end" class="chart-direct-label"${attr("fill", COMPARISON_USER_COLOR)}>Your mean</text>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (latestSecondaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<text${attr("x", innerWidth - 2)}${attr("y", Math.max(22, yScale(getMetricValue(latestSecondaryMetric, metricConfig.key)) + 14))} text-anchor="end" class="chart-direct-label"${attr("fill", COMPARISON_EXEMPLAR_COLOR)}>Exemplar mean</text>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (latestPrimaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<circle${attr("cx", xScale(latestPrimaryMetric.tick))}${attr("cy", yScale(getMetricValue(latestPrimaryMetric, metricConfig.key)))} r="4"${attr("fill", COMPARISON_USER_COLOR)}></circle>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (latestSecondaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<circle${attr("cx", xScale(latestSecondaryMetric.tick))}${attr("cy", yScale(getMetricValue(latestSecondaryMetric, metricConfig.key)))} r="4"${attr("fill", COMPARISON_EXEMPLAR_COLOR)}></circle>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+			} else if (isSideBySideStage) {
+				$$renderer.push("<!--[1-->");
+				$$renderer.push(`<path${attr("d", primaryPath)} fill="none"${attr("stroke", COMPARISON_USER_COLOR)} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.92" role="presentation"></path>`);
 				if (secondaryHistory.length > 1) {
 					$$renderer.push("<!--[0-->");
-					$$renderer.push(`<path${attr("d", secondaryPath)} fill="none"${attr("stroke", COMPARISON_EXEMPLAR_COLOR)} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.92"></path>`);
+					$$renderer.push(`<path${attr("d", secondaryPath)} fill="none"${attr("stroke", COMPARISON_EXEMPLAR_COLOR)} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.92" role="presentation"></path>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (latestPrimaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<text${attr("x", innerWidth - 2)}${attr("y", Math.max(10, yScale(getMetricValue(latestPrimaryMetric, metricConfig.key)) - 8))} text-anchor="end" class="chart-direct-label"${attr("fill", COMPARISON_USER_COLOR)}>You</text>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (latestSecondaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<text${attr("x", innerWidth - 2)}${attr("y", Math.max(22, yScale(getMetricValue(latestSecondaryMetric, metricConfig.key)) + 14))} text-anchor="end" class="chart-direct-label"${attr("fill", COMPARISON_EXEMPLAR_COLOR)}>Exemplar</text>`);
 				} else $$renderer.push("<!--[-1-->");
 				$$renderer.push(`<!--]-->`);
 				if (latestPrimaryMetric) {
@@ -933,7 +1520,7 @@ function LiveCharts($$renderer, $$props) {
 				$$renderer.push(`<!--]-->`);
 			} else {
 				$$renderer.push("<!--[-1-->");
-				$$renderer.push(`<path${attr("d", primaryPath)} fill="none"${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>`);
+				$$renderer.push(`<path${attr("d", primaryPath)} fill="none"${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" role="presentation"></path>`);
 				if (latestPrimaryMetric) {
 					$$renderer.push("<!--[0-->");
 					$$renderer.push(`<circle${attr("cx", xScale(latestPrimaryMetric.tick))}${attr("cy", yScale(getMetricValue(latestPrimaryMetric, metricConfig.key)))} r="4"${attr("fill", chartMetricsColorScale(metricConfig.key))}></circle>`);
@@ -942,19 +1529,19 @@ function LiveCharts($$renderer, $$props) {
 				if (getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key) !== null) {
 					$$renderer.push("<!--[0-->");
 					const targetValue = getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key);
-					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(targetValue))}${attr("y2", yScale(targetValue))} stroke="#6b7280" stroke-dasharray="8 4" stroke-width="1.5" opacity="0.9"></line>`);
+					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(targetValue))}${attr("y2", yScale(targetValue))} stroke="#6b7280" stroke-dasharray="8 4" stroke-width="1.5" opacity="0.9" role="presentation"></line>`);
 				} else $$renderer.push("<!--[-1-->");
 				$$renderer.push(`<!--]-->`);
 				if (getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key) !== null) {
 					$$renderer.push("<!--[0-->");
 					const userValue = getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key);
-					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(userValue))}${attr("y2", yScale(userValue))} stroke="#0f766e" stroke-dasharray="4 4" stroke-width="1.5" opacity="0.9"></line>`);
+					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(userValue))}${attr("y2", yScale(userValue))} stroke="#0f766e" stroke-dasharray="4 4" stroke-width="1.5" opacity="0.9" role="presentation"></line>`);
 				} else $$renderer.push("<!--[-1-->");
 				$$renderer.push(`<!--]-->`);
 				if (getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key) !== null) {
 					$$renderer.push("<!--[0-->");
 					const exemplarValue = getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key);
-					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(exemplarValue))}${attr("y2", yScale(exemplarValue))} stroke="#7c3aed" stroke-dasharray="2 3" stroke-width="1.5" opacity="0.9"></line>`);
+					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(exemplarValue))}${attr("y2", yScale(exemplarValue))} stroke="#7c3aed" stroke-dasharray="2 3" stroke-width="1.5" opacity="0.9" role="presentation"></line>`);
 				} else $$renderer.push("<!--[-1-->");
 				$$renderer.push(`<!--]-->`);
 			}
@@ -962,7 +1549,7 @@ function LiveCharts($$renderer, $$props) {
 			if (void 0 === metricConfig.key) {
 				$$renderer.push("<!--[0-->");
 				const hoveredValue = getMetricValue(hoveredMetric.metric, metricConfig.key);
-				$$renderer.push(`<line${attr("x1", xScale(hoveredMetric.metric.tick))}${attr("x2", xScale(hoveredMetric.metric.tick))} y1="0"${attr("y2", innerHeight)}${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-dasharray="4 4" stroke-width="1.5" opacity="0.45"></line><circle${attr("cx", xScale(hoveredMetric.metric.tick))}${attr("cy", yScale(hoveredValue))} r="5"${attr("fill", chartMetricsColorScale(metricConfig.key))} stroke="white" stroke-width="2"></circle>`);
+				$$renderer.push(`<line${attr("x1", xScale(hoveredMetric.metric.tick))}${attr("x2", xScale(hoveredMetric.metric.tick))} y1="0"${attr("y2", innerHeight)}${attr("stroke", isMonteCarloStage ? COMPARISON_USER_COLOR : chartMetricsColorScale(metricConfig.key))} stroke-dasharray="4 4" stroke-width="1.5" opacity="0.45"></line><circle${attr("cx", xScale(hoveredMetric.metric.tick))}${attr("cy", yScale(hoveredValue))} r="5"${attr("fill", isMonteCarloStage ? COMPARISON_USER_COLOR : chartMetricsColorScale(metricConfig.key))} stroke="white" stroke-width="2"></circle>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]--></g></svg></div>`);
 		}
@@ -972,12 +1559,19 @@ function LiveCharts($$renderer, $$props) {
 }
 //#endregion
 //#region src/components/layout/Sidebar.svelte
-function Sidebar($$renderer) {
+function Sidebar($$renderer, $$props) {
+	let showCharts = fallback($$props["showCharts"], true);
 	$$renderer.push(`<aside class="sidebar"><div class="panel narrative-panel">`);
 	Storyboard($$renderer, {});
-	$$renderer.push(`<!----></div> <div class="panel charts-panel">`);
-	LiveCharts($$renderer, {});
-	$$renderer.push(`<!----></div></aside>`);
+	$$renderer.push(`<!----></div> `);
+	if (showCharts) {
+		$$renderer.push("<!--[0-->");
+		$$renderer.push(`<div class="panel charts-panel">`);
+		LiveCharts($$renderer, {});
+		$$renderer.push(`<!----></div>`);
+	} else $$renderer.push("<!--[-1-->");
+	$$renderer.push(`<!--]--></aside>`);
+	bind_props($$props, { showCharts });
 }
 //#endregion
 //#region src/components/grid/AgentVisual.svelte
@@ -1031,6 +1625,8 @@ function VenueVisual($$renderer, $$props) {
 		let boardHeight = $$props["boardHeight"];
 		let hoveredVenueStore = $$props["hoveredVenueStore"];
 		let isDraggable = fallback($$props["isDraggable"], false);
+		let onPreviewMove = fallback($$props["onPreviewMove"], () => simulationActions.previewVenueMove, true);
+		let onCommitMove = fallback($$props["onCommitMove"], () => simulationActions.commitVenueMove, true);
 		const size = cellSize - 16;
 		$: tx = venue.x * cellSize + 8;
 		$: ty = venue.y * cellSize + 8;
@@ -1046,7 +1642,9 @@ function VenueVisual($$renderer, $$props) {
 			boardWidth,
 			boardHeight,
 			hoveredVenueStore,
-			isDraggable
+			isDraggable,
+			onPreviewMove,
+			onCommitMove
 		});
 	});
 }
@@ -1062,6 +1660,8 @@ function GridWorld($$renderer, $$props) {
 		let hoveredVenueStore = fallback($$props["hoveredVenueStore"], hoveredVenueId);
 		let allowInteractions = fallback($$props["allowInteractions"], true);
 		let compactMode = fallback($$props["compactMode"], false);
+		let previewVenueMove = fallback($$props["previewVenueMove"], () => simulationActions.previewVenueMove, true);
+		let commitVenueMove = fallback($$props["commitVenueMove"], () => simulationActions.commitVenueMove, true);
 		const width = 12;
 		const height = 12;
 		let cellSize = 45;
@@ -1089,7 +1689,9 @@ function GridWorld($$renderer, $$props) {
 				boardWidth: width,
 				boardHeight: height,
 				hoveredVenueStore,
-				isDraggable: allowInteractions && store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 5
+				isDraggable: allowInteractions && store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 5,
+				onPreviewMove: previewVenueMove,
+				onCommitMove: commitVenueMove
 			});
 		}
 		$$renderer.push(`<!--]--></g><g class="layer-agents"><!--[-->`);
@@ -1115,7 +1717,9 @@ function GridWorld($$renderer, $$props) {
 			ghostReactionsStore,
 			hoveredVenueStore,
 			allowInteractions,
-			compactMode
+			compactMode,
+			previewVenueMove,
+			commitVenueMove
 		});
 	});
 }
@@ -1124,19 +1728,30 @@ function GridWorld($$renderer, $$props) {
 function _page($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><h1>Segregation Dynamics: An Agent-Based Model</h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></header> <div class="exhibit-content"><section class="simulation-canvas"><div class="simulation-controls"><button class="simulation-toggle"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}${attr("aria-label", store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause simulation" : "Play simulation")}><span class="control-icon" aria-hidden="true">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "❚❚" : "▶")}</span> <span>${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Play")} simulation</span></button></div> `);
-		if (store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 10) {
+		$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><div class="exhibit-header-grid"><div><h1>Segregation Dynamics: An Agent-Based Model</h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></div> <div class="chapter-progress" role="navigation" aria-label="Chapter progression"><div class="chapter-progress-top"><span class="chapter-progress-label">Chapter ${escape_html(store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) + 1)} of ${escape_html(chapters.length)}</span> <div class="chapter-progress-actions"><button type="button" class="chapter-nav-btn"${attr("disabled", store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 0, true)} aria-label="Go to previous chapter">Previous</button> <button type="button" class="chapter-nav-btn"${attr("disabled", store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === chapters.length - 1, true)} aria-label="Go to next chapter">Next</button></div></div> <div class="chapter-stepper" aria-label="Chapter selection"><!--[-->`);
+		const each_array = ensure_array_like(chapters);
+		for (let chapterIndex = 0, $$length = each_array.length; chapterIndex < $$length; chapterIndex++) {
+			let chapter = each_array[chapterIndex];
+			$$renderer.push(`<button type="button"${attr_class("chapter-step", void 0, {
+				"is-complete": chapterIndex < store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex),
+				"is-active": chapterIndex === store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex)
+			})}${attr("aria-current", chapterIndex === store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) ? "step" : void 0)}${attr("aria-label", `Go to chapter ${chapterIndex + 1}: ${chapter.title}`)}${attr("title", `Chapter ${chapterIndex + 1}: ${chapter.title}`)}>${escape_html(chapterIndex + 1)}</button>`);
+		}
+		$$renderer.push(`<!--]--></div> <p class="chapter-progress-title">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).title)}</p></div></div></header> <div class="exhibit-content"><section${attr_class("simulation-canvas", void 0, { "chapter11-layout": store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 11 })}><div class="simulation-controls"><button class="simulation-toggle"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}${attr("aria-label", store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause simulation" : "Play simulation")}><span class="control-icon" aria-hidden="true">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "❚❚" : "▶")}</span> <span>${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Play")} simulation</span></button></div> `);
+		if (store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 10) {
 			$$renderer.push("<!--[0-->");
-			$$renderer.push(`<div class="grid-compare-layout"><div class="grid-wrapper compare-grid-panel"><h3 class="compare-grid-title">Your Policy</h3> `);
+			$$renderer.push(`<div class="grid-compare-layout"><div class="grid-wrapper compare-grid-panel"><h3 class="compare-grid-title">Your Policy <span class="tiny-badge tiny-badge-you-strong">You</span></h3> `);
 			GridWorld($$renderer, {
 				agentsStore: compareUserAgentsStore,
 				venuesStore: compareUserVenuesStore,
 				ghostReactionsStore: compareUserGhostReactionsStore,
 				hoveredVenueStore: compareUserHoveredVenueIdStore,
-				allowInteractions: false,
-				compactMode: true
+				allowInteractions: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 11,
+				compactMode: true,
+				previewVenueMove: simulationActions.previewCompareUserVenueMove,
+				commitVenueMove: simulationActions.commitCompareUserVenueMove
 			});
-			$$renderer.push(`<!----></div> <div class="grid-wrapper compare-grid-panel"><h3 class="compare-grid-title">Exemplar Policy</h3> `);
+			$$renderer.push(`<!----></div> <div class="grid-wrapper compare-grid-panel"><h3 class="compare-grid-title">Exemplar Policy <span class="tiny-badge tiny-badge-exemplar-strong">Exemplar</span></h3> `);
 			GridWorld($$renderer, {
 				agentsStore: compareExemplarAgentsStore,
 				venuesStore: compareExemplarVenuesStore,
@@ -1157,8 +1772,15 @@ function _page($$renderer, $$props) {
 			});
 			$$renderer.push(`<!----></div>`);
 		}
+		$$renderer.push(`<!--]--> `);
+		if (store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 11) {
+			$$renderer.push("<!--[0-->");
+			$$renderer.push(`<div class="panel chapter11-charts-panel">`);
+			LiveCharts($$renderer, {});
+			$$renderer.push(`<!----></div>`);
+		} else $$renderer.push("<!--[-1-->");
 		$$renderer.push(`<!--]--></section> `);
-		Sidebar($$renderer, {});
+		Sidebar($$renderer, { showCharts: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) !== 11 });
 		$$renderer.push(`<!----></div></main>`);
 		if ($$store_subs) unsubscribe_stores($$store_subs);
 	});
