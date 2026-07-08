@@ -3,33 +3,27 @@ import { writable, get } from 'svelte/store';
 import { SimulationEngine } from '../engine/SimulationEngine';
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../engine/world';
 import type { Agent, Venue, ReactionPreview, SegregationMetrics } from '../engine/types/models';
-
-type MetricAverages = {
-  dissimilarity: number;
-  exposure: number;
-  clustering: number;
-  sampleSize: number;
-};
+import {
+  averageComparisonRuns,
+  calculateMetricAveragesOverLastTicks,
+  shouldAutoPauseForStability,
+  type MetricAverages,
+  type TickMetrics
+} from './simulationStore.math';
 
 type PolicyRunRecord = {
   placement: Venue[];
   averages: MetricAverages;
 };
 
-type ComparisonTickRecord = {
-  tick: number;
-  dissimilarity: number;
-  exposure: number;
-  clustering: number;
-};
+type ComparisonTickRecord = TickMetrics;
 
 // 1. Initialize the headless engine
 export const engine = new SimulationEngine({
   width: WORLD_WIDTH,
   height: WORLD_HEIGHT,
   density: 0.8,
-  similarityThreshold: 0.5,
-  venueBoost: 0.2
+  similarityThreshold: 0.5
 });
 
 // Initialize the grid mathematically before exposing to UI
@@ -39,16 +33,14 @@ const compareUserEngine = new SimulationEngine({
   width: WORLD_WIDTH,
   height: WORLD_HEIGHT,
   density: 0.8,
-  similarityThreshold: 0.5,
-  venueBoost: 0.2
+  similarityThreshold: 0.5
 });
 
 const compareExemplarEngine = new SimulationEngine({
   width: WORLD_WIDTH,
   height: WORLD_HEIGHT,
   density: 0.8,
-  similarityThreshold: 0.5,
-  venueBoost: 0.2
+  similarityThreshold: 0.5
 });
 
 compareUserEngine.initEmptyGrid();
@@ -101,58 +93,13 @@ const FAST_COMPARISON_ANIMATION_DELAY_MS = 85;
 let stabilityStartIndex = 0;
 let policyBaselineAgentsSnapshot: Agent[] | null = null;
 
-function rollingMean(values: number[]): number {
-  if (values.length === 0) return 0;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function isMetricStable(history: SegregationMetrics[], selector: (m: SegregationMetrics) => number): boolean {
-  const requiredLength = STABILITY_WINDOW * 2;
-  if (history.length < requiredLength) return false;
-
-  const recent = history.slice(-STABILITY_WINDOW).map(selector);
-  const previous = history.slice(-requiredLength, -STABILITY_WINDOW).map(selector);
-
-  const delta = Math.abs(rollingMean(recent) - rollingMean(previous));
-  return delta <= STABILITY_DELTA_THRESHOLD;
-}
-
-function shouldAutoPauseForStability(history: SegregationMetrics[]): boolean {
-  const scopedHistory = history.slice(stabilityStartIndex);
-
-  return (
-    isMetricStable(scopedHistory, (m) => m.dissimilarity) &&
-    isMetricStable(scopedHistory, (m) => m.exposure) &&
-    isMetricStable(scopedHistory, (m) => m.clustering)
-  );
-}
-
 function resetStabilityWindowBaseline() {
   const history = get(metricsHistoryStore);
   stabilityStartIndex = Math.max(0, history.length - 1);
 }
 
 function calculateAveragesOverLastTicks(ticks: number): MetricAverages {
-  const history = get(metricsHistoryStore);
-  const sample = history.slice(-Math.max(1, ticks));
-
-  const sum = sample.reduce(
-    (acc, metric) => {
-      acc.dissimilarity += metric.dissimilarity;
-      acc.exposure += metric.exposure;
-      acc.clustering += metric.clustering;
-      return acc;
-    },
-    { dissimilarity: 0, exposure: 0, clustering: 0 }
-  );
-
-  const sampleSize = sample.length;
-  return {
-    dissimilarity: sampleSize > 0 ? sum.dissimilarity / sampleSize : 0,
-    exposure: sampleSize > 0 ? sum.exposure / sampleSize : 0,
-    clustering: sampleSize > 0 ? sum.clustering / sampleSize : 0,
-    sampleSize
-  };
+  return calculateMetricAveragesOverLastTicks(get(metricsHistoryStore), ticks);
 }
 
 function snapshotVenuePlacement(): Venue[] {
@@ -234,8 +181,7 @@ function runBackgroundTrajectory(
     width: WORLD_WIDTH,
     height: WORLD_HEIGHT,
     density: 0.8,
-    similarityThreshold: 0.5,
-    venueBoost: 0.2
+    similarityThreshold: 0.5
   });
 
   backgroundEngine.initEmptyGrid();
@@ -248,40 +194,6 @@ function runBackgroundTrajectory(
   }
 
   return history;
-}
-
-function averageComparisonRuns(runs: ComparisonTickRecord[][]): ComparisonTickRecord[] {
-  if (runs.length === 0) return [];
-
-  const maxLength = runs.reduce((max, run) => Math.max(max, run.length), 0);
-  const averaged: ComparisonTickRecord[] = [];
-
-  for (let index = 0; index < maxLength; index++) {
-    const points = runs
-      .map((run) => run[index] ?? run.at(-1))
-      .filter((point): point is ComparisonTickRecord => Boolean(point));
-
-    if (points.length === 0) continue;
-
-    const sums = points.reduce(
-      (acc, point) => {
-        acc.dissimilarity += point.dissimilarity;
-        acc.exposure += point.exposure;
-        acc.clustering += point.clustering;
-        return acc;
-      },
-      { dissimilarity: 0, exposure: 0, clustering: 0 }
-    );
-
-    averaged.push({
-      tick: points[0].tick,
-      dissimilarity: sums.dissimilarity / points.length,
-      exposure: sums.exposure / points.length,
-      clustering: sums.clustering / points.length
-    });
-  }
-
-  return averaged;
 }
 
 // 4. Public Action Functions
@@ -322,7 +234,12 @@ export const simulationActions = {
     const loop = () => {
       const isStillActive = this.step();
       const metricsHistory = get(metricsHistoryStore);
-      const reachedStableRollingMean = shouldAutoPauseForStability(metricsHistory);
+      const reachedStableRollingMean = shouldAutoPauseForStability(
+        metricsHistory,
+        stabilityStartIndex,
+        STABILITY_WINDOW,
+        STABILITY_DELTA_THRESHOLD
+      );
 
       // Throttle the visual speed of the loop for human observation
       if (isStillActive && !reachedStableRollingMean && get(isPlayingStore)) {
