@@ -756,6 +756,36 @@ export class SimulationEngine {
     this.updateAllUtilities();
   }
 
+  public applyIntegratedVenuePolicy(): void {
+    for (const venue of this.venues.values()) {
+      if (this.isWithinBounds(venue.x, venue.y) && this.grid[venue.y][venue.x] === venue.id) {
+        this.grid[venue.y][venue.x] = null;
+      }
+    }
+    this.venues.clear();
+
+    const quarterX = Math.floor(this.width / 4);
+    const threeQuarterX = Math.floor((3 * this.width) / 4);
+    const quarterY = Math.floor(this.height / 4);
+    const threeQuarterY = Math.floor((3 * this.height) / 4);
+
+    const clampX = (x: number) => Math.max(1, Math.min(this.width - 2, x));
+    const clampY = (y: number) => Math.max(1, Math.min(this.height - 2, y));
+
+    const placements: Array<{ id: string; x: number; y: number; color: EntityColor }> = [
+      { id: 'v_0', x: clampX(quarterX), y: clampY(quarterY), color: 'red' },
+      { id: 'v_1', x: clampX(quarterX + 2), y: clampY(quarterY), color: 'green' },
+      { id: 'v_2', x: clampX(threeQuarterX - 2), y: clampY(threeQuarterY), color: 'red' },
+      { id: 'v_3', x: clampX(threeQuarterX), y: clampY(threeQuarterY), color: 'green' }
+    ];
+
+    for (const placement of placements) {
+      this.placeVenue(placement.id, placement.x, placement.y, placement.color);
+    }
+
+    this.updateAllUtilities();
+  }
+
   // --- METRICS ---
 
   public getMetrics(): SegregationMetrics {

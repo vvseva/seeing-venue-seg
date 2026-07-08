@@ -4,6 +4,18 @@ import { SimulationEngine } from '../engine/SimulationEngine';
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../engine/world';
 import type { Agent, Venue, ReactionPreview, SegregationMetrics } from '../engine/types/models';
 
+type MetricAverages = {
+  dissimilarity: number;
+  exposure: number;
+  clustering: number;
+  sampleSize: number;
+};
+
+type PolicyRunRecord = {
+  placement: Venue[];
+  averages: MetricAverages;
+};
+
 // 1. Initialize the headless engine
 export const engine = new SimulationEngine({
   width: WORLD_WIDTH,
@@ -26,14 +38,17 @@ export const metricsHistoryStore = writable<SegregationMetrics[]>([engine.getMet
 export const ghostReactionsStore = writable<ReactionPreview[]>([]);
 export const hoveredVenueId = writable<string | null>(null);
 export const isGeneratingVenuesStore = writable<boolean>(false);
+export const policyTargetAveragesStore = writable<MetricAverages | null>(null);
+export const userPolicyResultStore = writable<PolicyRunRecord | null>(null);
+export const exemplarPolicyResultStore = writable<PolicyRunRecord | null>(null);
 
 // Internal loop reference for playing/pausing
 let animationFrameId: number;
 export const isPlayingStore = writable<boolean>(false);
 
-const STABILITY_WINDOW = 12;
+const STABILITY_WINDOW = 25;
 const STABILITY_DELTA_THRESHOLD = 0.02;
-const CHAPTER_TWO_SHORT_RUN_TICKS = 10;
+const CHAPTER_TWO_SHORT_RUN_TICKS = 50;
 
 let stabilityStartIndex = 0;
 
@@ -68,6 +83,35 @@ function resetStabilityWindowBaseline() {
   stabilityStartIndex = Math.max(0, history.length - 1);
 }
 
+function calculateAveragesOverLastTicks(ticks: number): MetricAverages {
+  const history = get(metricsHistoryStore);
+  const sample = history.slice(-Math.max(1, ticks));
+
+  const sum = sample.reduce(
+    (acc, metric) => {
+      acc.dissimilarity += metric.dissimilarity;
+      acc.exposure += metric.exposure;
+      acc.clustering += metric.clustering;
+      return acc;
+    },
+    { dissimilarity: 0, exposure: 0, clustering: 0 }
+  );
+
+  const sampleSize = sample.length;
+  return {
+    dissimilarity: sampleSize > 0 ? sum.dissimilarity / sampleSize : 0,
+    exposure: sampleSize > 0 ? sum.exposure / sampleSize : 0,
+    clustering: sampleSize > 0 ? sum.clustering / sampleSize : 0,
+    sampleSize
+  };
+}
+
+function snapshotVenuePlacement(): Venue[] {
+  return Array.from(engine.venues.values())
+    .map((venue) => ({ ...venue }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 // 3. Helper: Synchronize the engine state with the Svelte stores
 function syncStores() {
   agentsStore.set(Array.from(engine.agents.values()));
@@ -97,6 +141,9 @@ export const simulationActions = {
     engine.initEmptyGrid();
     syncStores();
     metricsHistoryStore.set([engine.getMetrics()]);
+    policyTargetAveragesStore.set(null);
+    userPolicyResultStore.set(null);
+    exemplarPolicyResultStore.set(null);
     resetStabilityWindowBaseline();
     this.stop();
   },
@@ -132,7 +179,7 @@ export const simulationActions = {
     loop();
   },
 
-  playForTicks(ticks: number = CHAPTER_TWO_SHORT_RUN_TICKS) {
+  playForTicks(ticks: number = CHAPTER_TWO_SHORT_RUN_TICKS, onComplete?: () => void) {
     if (get(isPlayingStore)) return;
 
     const totalTicks = Math.max(1, Math.floor(ticks));
@@ -149,10 +196,44 @@ export const simulationActions = {
         }, 200);
       } else {
         this.stop();
+        onComplete?.();
       }
     };
 
     loop();
+  },
+
+  capturePolicyTargetFromLast25Ticks() {
+    policyTargetAveragesStore.set(calculateAveragesOverLastTicks(25));
+  },
+
+  runUserPolicyEvaluation() {
+    this.stop();
+    resetStabilityWindowBaseline();
+
+    const placement = snapshotVenuePlacement();
+    this.playForTicks(25, () => {
+      userPolicyResultStore.set({
+        placement,
+        averages: calculateAveragesOverLastTicks(25)
+      });
+    });
+  },
+
+  runExemplarPolicyEvaluation() {
+    this.stop();
+    engine.applyIntegratedVenuePolicy();
+    syncStores();
+    recordCurrentMetrics();
+    resetStabilityWindowBaseline();
+
+    const placement = snapshotVenuePlacement();
+    this.playForTicks(25, () => {
+      exemplarPolicyResultStore.set({
+        placement,
+        averages: calculateAveragesOverLastTicks(25)
+      });
+    });
   },
 
   stop() {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as d3 from 'd3';
-  import { metricsHistoryStore } from '../../stores/simulationStore';
+  import { metricsHistoryStore, policyTargetAveragesStore, userPolicyResultStore, exemplarPolicyResultStore } from '../../stores/simulationStore';
   import type { SegregationMetrics } from '../../engine/types/models';
   import { chartMetricsColorScale } from '../../utils/colors';
 
@@ -10,8 +10,16 @@
     title: string;
   };
 
+  type MetricAverages = {
+    dissimilarity: number;
+    exposure: number;
+    clustering: number;
+    sampleSize: number;
+  };
+
   const width = 320;
   const height = 190;
+  const Y_AXIS_WINDOW_TICKS = 50;
   const margin = { top: 20, right: 20, bottom: 30, left: 40 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
@@ -32,10 +40,24 @@
   }
 
   function createYScale(history: SegregationMetrics[], metricKey: MetricKey) {
-    const maxValue = d3.max(history, (metric) => metric[metricKey]) || 0;
+    const recentHistory = history.slice(-Y_AXIS_WINDOW_TICKS);
+    const recentValues = recentHistory.map((metric) => metric[metricKey]);
+    const referenceValues = [
+      $policyTargetAveragesStore?.[metricKey] ?? 0,
+      $userPolicyResultStore?.averages[metricKey] ?? 0,
+      $exemplarPolicyResultStore?.averages[metricKey] ?? 0
+    ];
+
+    const allValues = [...recentValues, ...referenceValues];
+    const minValue = d3.min(allValues) ?? 0;
+    const maxValue = d3.max(allValues) ?? 1;
+    const range = maxValue - minValue;
+    const padding = Math.max(0.02, range * 0.12);
+    const yMin = Math.max(0, minValue - padding);
+    const yMax = Math.max(yMin + 0.08, maxValue + padding);
 
     return d3.scaleLinear()
-      .domain([0, Math.max(1, maxValue)])
+      .domain([yMin, yMax])
       .range([innerHeight, 0]);
   }
 
@@ -75,6 +97,11 @@
   function handlePointerLeave() {
     hoveredMetric = null;
   }
+
+  function getAverageValue(averages: MetricAverages | null | undefined, key: MetricKey) {
+    if (!averages) return null;
+    return averages[key];
+  }
 </script>
 
 <div class="charts-stack">
@@ -93,6 +120,16 @@
           Waiting for simulation data...
         {/if}
       </p>
+
+      {#if $policyTargetAveragesStore}
+        <p class="chart-value">Target avg (25 ticks): {($policyTargetAveragesStore[metricConfig.key]).toFixed(3)}</p>
+      {/if}
+      {#if $userPolicyResultStore}
+        <p class="chart-value">Your policy avg: {($userPolicyResultStore.averages[metricConfig.key]).toFixed(3)}</p>
+      {/if}
+      {#if $exemplarPolicyResultStore}
+        <p class="chart-value">Exemplar avg: {($exemplarPolicyResultStore.averages[metricConfig.key]).toFixed(3)}</p>
+      {/if}
       
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -131,6 +168,48 @@
               cy={yScale(getMetricValue(latestMetric, metricConfig.key))}
               r="4"
               fill={chartMetricsColorScale(metricConfig.key)}
+            />
+          {/if}
+
+          {#if getAverageValue($policyTargetAveragesStore, metricConfig.key) !== null}
+            {@const targetValue = getAverageValue($policyTargetAveragesStore, metricConfig.key) as number}
+            <line
+              x1="0"
+              x2={innerWidth}
+              y1={yScale(targetValue)}
+              y2={yScale(targetValue)}
+              stroke="#6b7280"
+              stroke-dasharray="8 4"
+              stroke-width="1.5"
+              opacity="0.9"
+            />
+          {/if}
+
+          {#if getAverageValue($userPolicyResultStore?.averages, metricConfig.key) !== null}
+            {@const userValue = getAverageValue($userPolicyResultStore?.averages, metricConfig.key) as number}
+            <line
+              x1="0"
+              x2={innerWidth}
+              y1={yScale(userValue)}
+              y2={yScale(userValue)}
+              stroke="#0f766e"
+              stroke-dasharray="4 4"
+              stroke-width="1.5"
+              opacity="0.9"
+            />
+          {/if}
+
+          {#if getAverageValue($exemplarPolicyResultStore?.averages, metricConfig.key) !== null}
+            {@const exemplarValue = getAverageValue($exemplarPolicyResultStore?.averages, metricConfig.key) as number}
+            <line
+              x1="0"
+              x2={innerWidth}
+              y1={yScale(exemplarValue)}
+              y2={yScale(exemplarValue)}
+              stroke="#7c3aed"
+              stroke-dasharray="2 3"
+              stroke-width="1.5"
+              opacity="0.9"
             />
           {/if}
 

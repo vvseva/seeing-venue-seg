@@ -57,6 +57,20 @@ var chaptersData = [
 		content: "Let's run the simulation again. Observe how the introduction of venues changes the previously segregated environment.",
 		actionLabel: "Run Simulation",
 		dispatchAction: "PLAY_SIMULATION"
+	},
+	{
+		id: 8,
+		title: "Policy Maker Challenge",
+		content: "You are now the policy maker. Move venues, run the model for 25 ticks, and try to reduce segregation. We will save your venue placements and the average segregation indexes from those 25 ticks as your policy score.",
+		actionLabel: "Run Your Policy (25 Ticks)",
+		dispatchAction: "RUN_USER_POLICY"
+	},
+	{
+		id: 9,
+		title: "Exemplar Integrated Policy",
+		content: "Now compare your policy with an exemplar integrated venue placement. The model keeps four venues and places them far from each other and from boundaries with alternating colors. We run 25 ticks and compare average indexes.",
+		actionLabel: "Run Exemplar Policy (25 Ticks)",
+		dispatchAction: "RUN_EXEMPLAR_POLICY"
 	}
 ];
 var currentChapterIndex = writable(0);
@@ -618,6 +632,44 @@ var SimulationEngine = class {
 		}
 		this.updateAllUtilities();
 	}
+	applyIntegratedVenuePolicy() {
+		for (const venue of this.venues.values()) if (this.isWithinBounds(venue.x, venue.y) && this.grid[venue.y][venue.x] === venue.id) this.grid[venue.y][venue.x] = null;
+		this.venues.clear();
+		const quarterX = Math.floor(this.width / 4);
+		const threeQuarterX = Math.floor(3 * this.width / 4);
+		const quarterY = Math.floor(this.height / 4);
+		const threeQuarterY = Math.floor(3 * this.height / 4);
+		const clampX = (x) => Math.max(1, Math.min(this.width - 2, x));
+		const clampY = (y) => Math.max(1, Math.min(this.height - 2, y));
+		const placements = [
+			{
+				id: "v_0",
+				x: clampX(quarterX),
+				y: clampY(quarterY),
+				color: "red"
+			},
+			{
+				id: "v_1",
+				x: clampX(quarterX + 2),
+				y: clampY(quarterY),
+				color: "green"
+			},
+			{
+				id: "v_2",
+				x: clampX(threeQuarterX - 2),
+				y: clampY(threeQuarterY),
+				color: "red"
+			},
+			{
+				id: "v_3",
+				x: clampX(threeQuarterX),
+				y: clampY(threeQuarterY),
+				color: "green"
+			}
+		];
+		for (const placement of placements) this.placeVenue(placement.id, placement.x, placement.y, placement.color);
+		this.updateAllUtilities();
+	}
 	getMetrics() {
 		return calculateMetrics(this.agents, this.width, this.height, this.tickCount);
 	}
@@ -639,6 +691,9 @@ var metricsHistoryStore = writable([engine.getMetrics()]);
 var ghostReactionsStore = writable([]);
 var hoveredVenueId = writable(null);
 var isGeneratingVenuesStore = writable(false);
+var policyTargetAveragesStore = writable(null);
+var userPolicyResultStore = writable(null);
+var exemplarPolicyResultStore = writable(null);
 var isPlayingStore = writable(false);
 //#endregion
 //#region src/components/narrative/Storyboard.svelte
@@ -705,8 +760,20 @@ function LiveCharts($$renderer, $$props) {
 			return d3.scaleLinear().domain([0, d3.max(history, (metric) => metric.tick) || 10]).range([0, innerWidth]);
 		}
 		function createYScale(history, metricKey) {
-			const maxValue = d3.max(history, (metric) => metric[metricKey]) || 0;
-			return d3.scaleLinear().domain([0, Math.max(1, maxValue)]).range([innerHeight, 0]);
+			const recentValues = history.slice(-50).map((metric) => metric[metricKey]);
+			const referenceValues = [
+				store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)?.[metricKey] ?? 0,
+				store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages[metricKey] ?? 0,
+				store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages[metricKey] ?? 0
+			];
+			const allValues = [...recentValues, ...referenceValues];
+			const minValue = d3.min(allValues) ?? 0;
+			const maxValue = d3.max(allValues) ?? 1;
+			const range = maxValue - minValue;
+			const padding = Math.max(.02, range * .12);
+			const yMin = Math.max(0, minValue - padding);
+			const yMax = Math.max(yMin + .08, maxValue + padding);
+			return d3.scaleLinear().domain([yMin, yMax]).range([innerHeight, 0]);
 		}
 		function createPathData(history, metricKey) {
 			const xScale = createXScale(history);
@@ -715,6 +782,10 @@ function LiveCharts($$renderer, $$props) {
 		}
 		function getMetricValue(metric, metricKey) {
 			return metric[metricKey];
+		}
+		function getAverageValue(averages, key) {
+			if (!averages) return null;
+			return averages[key];
 		}
 		$: metricsHistory = store_get($$store_subs ??= {}, "$metricsHistoryStore", metricsHistoryStore);
 		$: latestMetric = metricsHistory.at(-1);
@@ -736,7 +807,22 @@ function LiveCharts($$renderer, $$props) {
 				$$renderer.push("<!--[-1-->");
 				$$renderer.push(`Waiting for simulation data...`);
 			}
-			$$renderer.push(`<!--]--></p> <svg${attr("viewBox", `0 0 ${width} ${height}`)} preserveAspectRatio="none" role="img"${attr("aria-label", `Interactive chart for ${metricConfig.title}`)}><g${attr("transform", `translate(${margin.left},${margin.top})`)}><!--[-->`);
+			$$renderer.push(`<!--]--></p> `);
+			if (store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<p class="chart-value">Target avg (25 ticks): ${escape_html(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)[metricConfig.key].toFixed(3))}</p>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]--> `);
+			if (store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<p class="chart-value">Your policy avg: ${escape_html(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore).averages[metricConfig.key].toFixed(3))}</p>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]--> `);
+			if (store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<p class="chart-value">Exemplar avg: ${escape_html(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore).averages[metricConfig.key].toFixed(3))}</p>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]--> <svg${attr("viewBox", `0 0 ${width} ${height}`)} preserveAspectRatio="none" role="img"${attr("aria-label", `Interactive chart for ${metricConfig.title}`)}><g${attr("transform", `translate(${margin.left},${margin.top})`)}><!--[-->`);
 			const each_array_1 = ensure_array_like(yScale.ticks(4));
 			for (let $$index = 0, $$length = each_array_1.length; $$index < $$length; $$index++) {
 				let tick = each_array_1[$$index];
@@ -746,6 +832,24 @@ function LiveCharts($$renderer, $$props) {
 			if (latestMetric) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<circle${attr("cx", xScale(latestMetric.tick))}${attr("cy", yScale(getMetricValue(latestMetric, metricConfig.key)))} r="4"${attr("fill", chartMetricsColorScale(metricConfig.key))}></circle>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]-->`);
+			if (getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key) !== null) {
+				$$renderer.push("<!--[0-->");
+				const targetValue = getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key);
+				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(targetValue))}${attr("y2", yScale(targetValue))} stroke="#6b7280" stroke-dasharray="8 4" stroke-width="1.5" opacity="0.9"></line>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]-->`);
+			if (getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key) !== null) {
+				$$renderer.push("<!--[0-->");
+				const userValue = getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key);
+				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(userValue))}${attr("y2", yScale(userValue))} stroke="#0f766e" stroke-dasharray="4 4" stroke-width="1.5" opacity="0.9"></line>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]-->`);
+			if (getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key) !== null) {
+				$$renderer.push("<!--[0-->");
+				const exemplarValue = getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key);
+				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(exemplarValue))}${attr("y2", yScale(exemplarValue))} stroke="#7c3aed" stroke-dasharray="2 3" stroke-width="1.5" opacity="0.9"></line>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]-->`);
 			if (void 0 === metricConfig.key) {

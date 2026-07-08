@@ -6,7 +6,15 @@ export interface Chapter {
   title: string;
   content: string;
   actionLabel: string;
-  dispatchAction?: 'SPAWN_PROTAGONIST' | 'SPAWN_TUTORIAL_GROUPS' | 'SPAWN_POPULATION' | 'GENERATE_VENUES' | 'PLAY_SIMULATION' | 'RESET';
+  dispatchAction?:
+    | 'SPAWN_PROTAGONIST'
+    | 'SPAWN_TUTORIAL_GROUPS'
+    | 'SPAWN_POPULATION'
+    | 'GENERATE_VENUES'
+    | 'PLAY_SIMULATION'
+    | 'RUN_USER_POLICY'
+    | 'RUN_EXEMPLAR_POLICY'
+    | 'RESET';
 }
 
 const chaptersData: Chapter[] = [
@@ -65,6 +73,20 @@ const chaptersData: Chapter[] = [
     content: "Let's run the simulation again. Observe how the introduction of venues changes the previously segregated environment.",
     actionLabel: "Run Simulation",
     dispatchAction: 'PLAY_SIMULATION'
+  },
+  {
+    id: 8,
+    title: "Policy Maker Challenge",
+    content: "You are now the policy maker. Move venues, run the model for 25 ticks, and try to reduce segregation. We will save your venue placements and the average segregation indexes from those 25 ticks as your policy score.",
+    actionLabel: "Run Your Policy (25 Ticks)",
+    dispatchAction: 'RUN_USER_POLICY'
+  },
+  {
+    id: 9,
+    title: "Exemplar Integrated Policy",
+    content: "Now compare your policy with an exemplar integrated venue placement. The model keeps four venues and places them far from each other and from boundaries with alternating colors. We run 25 ticks and compare average indexes.",
+    actionLabel: "Run Exemplar Policy (25 Ticks)",
+    dispatchAction: 'RUN_EXEMPLAR_POLICY'
   }
 ];
 

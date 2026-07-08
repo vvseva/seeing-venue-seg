@@ -2,7 +2,7 @@
   import { currentChapter, currentChapterIndex, narrativeActions } from '../../stores/narrativeStore';
   import { isGeneratingVenuesStore, simulationActions } from '../../stores/simulationStore';
 
-  const finalChapterIndex = 7; // Updated to match new chapter length
+  const finalChapterIndex = 9; // Updated to match new chapter length
 
   async function nextPhase() {
     simulationActions.resetStabilityWindow();
@@ -18,10 +18,16 @@
       await simulationActions.generateEmergentVenues();
     } else if ($currentChapter.dispatchAction === 'PLAY_SIMULATION') {
       if ($currentChapter.id === 7) {
-        simulationActions.playForTicks(10);
+        simulationActions.playForTicks(25, () => {
+          simulationActions.capturePolicyTargetFromLast25Ticks();
+        });
       } else {
         simulationActions.play();
       }
+    } else if ($currentChapter.dispatchAction === 'RUN_USER_POLICY') {
+      simulationActions.runUserPolicyEvaluation();
+    } else if ($currentChapter.dispatchAction === 'RUN_EXEMPLAR_POLICY') {
+      simulationActions.runExemplarPolicyEvaluation();
     }
 
     // 2. Advance the narrative
