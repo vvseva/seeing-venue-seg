@@ -1,12 +1,14 @@
 <script lang="ts">
   import * as d3 from 'd3';
-  import { simulationActions, hoveredVenueId } from '../../stores/simulationStore';
+  import type { Writable } from 'svelte/store';
+  import { simulationActions } from '../../stores/simulationStore';
   import type { Venue } from '../../engine/types/models';
   
   export let venue: Venue;
   export let cellSize: number;
   export let boardWidth: number;
   export let boardHeight: number;
+  export let hoveredVenueStore: Writable<string | null>;
   export let isDraggable: boolean = false;
   
   $: tx = venue.x * cellSize + 8;
@@ -51,14 +53,14 @@
   }
   
   function handleMouseEnter() {
-    hoveredVenueId.set(venue.id);
+    hoveredVenueStore.set(venue.id);
   }
 
   function handleMouseLeave() {
-    hoveredVenueId.set(null);
+    hoveredVenueStore.set(null);
   }
 
-  $: isHovered = $hoveredVenueId === venue.id;
+  $: isHovered = $hoveredVenueStore === venue.id;
 </script>
 
 <g

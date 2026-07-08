@@ -1,6 +1,14 @@
 <script lang="ts">
   import * as d3 from 'd3';
-  import { metricsHistoryStore, policyTargetAveragesStore, userPolicyResultStore, exemplarPolicyResultStore } from '../../stores/simulationStore';
+  import {
+    metricsHistoryStore,
+    policyTargetAveragesStore,
+    userPolicyResultStore,
+    exemplarPolicyResultStore,
+    compareUserMetricsHistoryStore,
+    compareExemplarMetricsHistoryStore
+  } from '../../stores/simulationStore';
+  import { currentChapterIndex } from '../../stores/narrativeStore';
   import type { SegregationMetrics } from '../../engine/types/models';
   import { chartMetricsColorScale } from '../../utils/colors';
 
@@ -20,6 +28,8 @@
   const width = 320;
   const height = 190;
   const Y_AXIS_WINDOW_TICKS = 50;
+  const COMPARISON_USER_COLOR = '#0072B2';
+  const COMPARISON_EXEMPLAR_COLOR = '#D55E00';
   const margin = { top: 20, right: 20, bottom: 30, left: 40 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
@@ -33,22 +43,45 @@
   $: latestMetric = metricsHistory.at(-1);
   let hoveredMetric: { key: MetricKey; metric: SegregationMetrics } | null = null;
 
-  function createXScale(history: SegregationMetrics[]) {
+  function createXScale(
+    history: SegregationMetrics[],
+    comparisonUser: SegregationMetrics[] = [],
+    comparisonExemplar: SegregationMetrics[] = []
+  ) {
+    const maxTick = Math.max(
+      d3.max(history, (metric) => metric.tick) || 0,
+      d3.max(comparisonUser, (metric) => metric.tick) || 0,
+      d3.max(comparisonExemplar, (metric) => metric.tick) || 0,
+      10
+    );
+
     return d3.scaleLinear()
-      .domain([0, d3.max(history, (metric) => metric.tick) || 10])
+      .domain([0, maxTick])
       .range([0, innerWidth]);
   }
 
-  function createYScale(history: SegregationMetrics[], metricKey: MetricKey) {
+  function createYScale(
+    history: SegregationMetrics[],
+    metricKey: MetricKey,
+    comparisonUser: SegregationMetrics[] = [],
+    comparisonExemplar: SegregationMetrics[] = []
+  ) {
     const recentHistory = history.slice(-Y_AXIS_WINDOW_TICKS);
     const recentValues = recentHistory.map((metric) => metric[metricKey]);
+    const recentComparisonUserValues = comparisonUser.slice(-Y_AXIS_WINDOW_TICKS).map((metric) => metric[metricKey]);
+    const recentComparisonExemplarValues = comparisonExemplar.slice(-Y_AXIS_WINDOW_TICKS).map((metric) => metric[metricKey]);
     const referenceValues = [
       $policyTargetAveragesStore?.[metricKey] ?? 0,
       $userPolicyResultStore?.averages[metricKey] ?? 0,
       $exemplarPolicyResultStore?.averages[metricKey] ?? 0
     ];
 
-    const allValues = [...recentValues, ...referenceValues];
+    const allValues = [
+      ...recentValues,
+      ...recentComparisonUserValues,
+      ...recentComparisonExemplarValues,
+      ...referenceValues
+    ];
     const minValue = d3.min(allValues) ?? 0;
     const maxValue = d3.max(allValues) ?? 1;
     const range = maxValue - minValue;
@@ -61,9 +94,14 @@
       .range([innerHeight, 0]);
   }
 
-  function createPathData(history: SegregationMetrics[], metricKey: MetricKey) {
-    const xScale = createXScale(history);
-    const yScale = createYScale(history, metricKey);
+  function createPathData(
+    history: SegregationMetrics[],
+    metricKey: MetricKey,
+    comparisonUser: SegregationMetrics[] = [],
+    comparisonExemplar: SegregationMetrics[] = []
+  ) {
+    const xScale = createXScale(history, comparisonUser, comparisonExemplar);
+    const yScale = createYScale(history, metricKey, comparisonUser, comparisonExemplar);
 
     return d3.line<SegregationMetrics>()
       .x((metric) => xScale(metric.tick))
@@ -106,13 +144,23 @@
 
 <div class="charts-stack">
   {#each metricConfigs as metricConfig}
-    {@const xScale = createXScale(metricsHistory)}
-    {@const yScale = createYScale(metricsHistory, metricConfig.key)}
-    {@const pathData = createPathData(metricsHistory, metricConfig.key)}
+    {@const comparisonUserHistory = $compareUserMetricsHistoryStore}
+    {@const comparisonExemplarHistory = $compareExemplarMetricsHistoryStore}
+    {@const isSideBySideStage = $currentChapterIndex === 10 && comparisonUserHistory.length > 0 && comparisonExemplarHistory.length > 0}
+    {@const primaryHistory = isSideBySideStage ? comparisonUserHistory : metricsHistory}
+    {@const secondaryHistory = isSideBySideStage ? comparisonExemplarHistory : []}
+    {@const xScale = createXScale(primaryHistory, secondaryHistory)}
+    {@const yScale = createYScale(primaryHistory, metricConfig.key, secondaryHistory)}
+    {@const primaryPath = createPathData(primaryHistory, metricConfig.key, secondaryHistory)}
+    {@const secondaryPath = createPathData(secondaryHistory, metricConfig.key, secondaryHistory)}
+    {@const latestPrimaryMetric = primaryHistory.at(-1)}
+    {@const latestSecondaryMetric = secondaryHistory.at(-1)}
     <div class="chart-container">
       <h3>{metricConfig.title}</h3>
       <p class="chart-value">
-        {#if hoveredMetric?.key === metricConfig.key}
+        {#if isSideBySideStage && latestPrimaryMetric && latestSecondaryMetric}
+          Tick {latestPrimaryMetric.tick}: You {getMetricValue(latestPrimaryMetric, metricConfig.key).toFixed(3)} | Exemplar {getMetricValue(latestSecondaryMetric, metricConfig.key).toFixed(3)}
+        {:else if hoveredMetric?.key === metricConfig.key}
           Tick {hoveredMetric.metric.tick}: {getMetricValue(hoveredMetric.metric, metricConfig.key).toFixed(3)}
         {:else if latestMetric}
           Tick {latestMetric.tick}: {getMetricValue(latestMetric, metricConfig.key).toFixed(3)}
@@ -121,14 +169,17 @@
         {/if}
       </p>
 
-      {#if $policyTargetAveragesStore}
+      {#if !isSideBySideStage && $policyTargetAveragesStore}
         <p class="chart-value">Target avg (25 ticks): {($policyTargetAveragesStore[metricConfig.key]).toFixed(3)}</p>
       {/if}
-      {#if $userPolicyResultStore}
+      {#if !isSideBySideStage && $userPolicyResultStore}
         <p class="chart-value">Your policy avg: {($userPolicyResultStore.averages[metricConfig.key]).toFixed(3)}</p>
       {/if}
-      {#if $exemplarPolicyResultStore}
+      {#if !isSideBySideStage && $exemplarPolicyResultStore}
         <p class="chart-value">Exemplar avg: {($exemplarPolicyResultStore.averages[metricConfig.key]).toFixed(3)}</p>
+      {/if}
+      {#if isSideBySideStage}
+        <p class="chart-value">Blue: your policy trajectory | Orange: exemplar trajectory</p>
       {/if}
       
       <svg
@@ -136,7 +187,7 @@
         preserveAspectRatio="none"
         role="img"
         aria-label={`Interactive chart for ${metricConfig.title}`}
-        on:pointermove={(event) => handlePointerMove(event, metricsHistory, metricConfig.key)}
+        on:pointermove={(event) => handlePointerMove(event, primaryHistory, metricConfig.key)}
         on:pointerleave={handlePointerLeave}
       >
         <g transform={`translate(${margin.left},${margin.top})`}>
@@ -153,64 +204,105 @@
             </text>
           {/each}
 
-          <path
-            d={pathData}
-            fill="none"
-            stroke={chartMetricsColorScale(metricConfig.key)}
-            stroke-width="3"
-            stroke-linejoin="round"
-            stroke-linecap="round"
-          />
-
-          {#if latestMetric}
-            <circle
-              cx={xScale(latestMetric.tick)}
-              cy={yScale(getMetricValue(latestMetric, metricConfig.key))}
-              r="4"
-              fill={chartMetricsColorScale(metricConfig.key)}
+          {#if isSideBySideStage}
+            <path
+              d={primaryPath}
+              fill="none"
+              stroke={COMPARISON_USER_COLOR}
+              stroke-width="3"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+              opacity="0.92"
             />
-          {/if}
+            {#if secondaryHistory.length > 1}
+              <path
+                d={secondaryPath}
+                fill="none"
+                stroke={COMPARISON_EXEMPLAR_COLOR}
+                stroke-width="3"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+                opacity="0.92"
+              />
+            {/if}
 
-          {#if getAverageValue($policyTargetAveragesStore, metricConfig.key) !== null}
-            {@const targetValue = getAverageValue($policyTargetAveragesStore, metricConfig.key) as number}
-            <line
-              x1="0"
-              x2={innerWidth}
-              y1={yScale(targetValue)}
-              y2={yScale(targetValue)}
-              stroke="#6b7280"
-              stroke-dasharray="8 4"
-              stroke-width="1.5"
-              opacity="0.9"
-            />
-          {/if}
+            {#if latestPrimaryMetric}
+              <circle
+                cx={xScale(latestPrimaryMetric.tick)}
+                cy={yScale(getMetricValue(latestPrimaryMetric, metricConfig.key))}
+                r="4"
+                fill={COMPARISON_USER_COLOR}
+              />
+            {/if}
 
-          {#if getAverageValue($userPolicyResultStore?.averages, metricConfig.key) !== null}
-            {@const userValue = getAverageValue($userPolicyResultStore?.averages, metricConfig.key) as number}
-            <line
-              x1="0"
-              x2={innerWidth}
-              y1={yScale(userValue)}
-              y2={yScale(userValue)}
-              stroke="#0f766e"
-              stroke-dasharray="4 4"
-              stroke-width="1.5"
-              opacity="0.9"
+            {#if latestSecondaryMetric}
+              <circle
+                cx={xScale(latestSecondaryMetric.tick)}
+                cy={yScale(getMetricValue(latestSecondaryMetric, metricConfig.key))}
+                r="4"
+                fill={COMPARISON_EXEMPLAR_COLOR}
+              />
+            {/if}
+          {:else}
+            <path
+              d={primaryPath}
+              fill="none"
+              stroke={chartMetricsColorScale(metricConfig.key)}
+              stroke-width="3"
+              stroke-linejoin="round"
+              stroke-linecap="round"
             />
-          {/if}
 
-          {#if getAverageValue($exemplarPolicyResultStore?.averages, metricConfig.key) !== null}
-            {@const exemplarValue = getAverageValue($exemplarPolicyResultStore?.averages, metricConfig.key) as number}
-            <line
-              x1="0"
-              x2={innerWidth}
-              y1={yScale(exemplarValue)}
-              y2={yScale(exemplarValue)}
-              stroke="#7c3aed"
-              stroke-dasharray="2 3"
-              stroke-width="1.5"
-              opacity="0.9"
-            />
+            {#if latestPrimaryMetric}
+              <circle
+                cx={xScale(latestPrimaryMetric.tick)}
+                cy={yScale(getMetricValue(latestPrimaryMetric, metricConfig.key))}
+                r="4"
+                fill={chartMetricsColorScale(metricConfig.key)}
+              />
+            {/if}
+
+            {#if getAverageValue($policyTargetAveragesStore, metricConfig.key) !== null}
+              {@const targetValue = getAverageValue($policyTargetAveragesStore, metricConfig.key) as number}
+              <line
+                x1="0"
+                x2={innerWidth}
+                y1={yScale(targetValue)}
+                y2={yScale(targetValue)}
+                stroke="#6b7280"
+                stroke-dasharray="8 4"
+                stroke-width="1.5"
+                opacity="0.9"
+              />
+            {/if}
+
+            {#if getAverageValue($userPolicyResultStore?.averages, metricConfig.key) !== null}
+              {@const userValue = getAverageValue($userPolicyResultStore?.averages, metricConfig.key) as number}
+              <line
+                x1="0"
+                x2={innerWidth}
+                y1={yScale(userValue)}
+                y2={yScale(userValue)}
+                stroke="#0f766e"
+                stroke-dasharray="4 4"
+                stroke-width="1.5"
+                opacity="0.9"
+              />
+            {/if}
+
+            {#if getAverageValue($exemplarPolicyResultStore?.averages, metricConfig.key) !== null}
+              {@const exemplarValue = getAverageValue($exemplarPolicyResultStore?.averages, metricConfig.key) as number}
+              <line
+                x1="0"
+                x2={innerWidth}
+                y1={yScale(exemplarValue)}
+                y2={yScale(exemplarValue)}
+                stroke="#7c3aed"
+                stroke-dasharray="2 3"
+                stroke-width="1.5"
+                opacity="0.9"
+              />
+            {/if}
           {/if}
 
           {#if hoveredMetric?.key === metricConfig.key}

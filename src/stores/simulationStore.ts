@@ -16,6 +16,13 @@ type PolicyRunRecord = {
   averages: MetricAverages;
 };
 
+type ComparisonTickRecord = {
+  tick: number;
+  dissimilarity: number;
+  exposure: number;
+  clustering: number;
+};
+
 // 1. Initialize the headless engine
 export const engine = new SimulationEngine({
   width: WORLD_WIDTH,
@@ -28,6 +35,25 @@ export const engine = new SimulationEngine({
 // Initialize the grid mathematically before exposing to UI
 engine.initEmptyGrid();
 
+const compareUserEngine = new SimulationEngine({
+  width: WORLD_WIDTH,
+  height: WORLD_HEIGHT,
+  density: 0.8,
+  similarityThreshold: 0.5,
+  venueBoost: 0.2
+});
+
+const compareExemplarEngine = new SimulationEngine({
+  width: WORLD_WIDTH,
+  height: WORLD_HEIGHT,
+  density: 0.8,
+  similarityThreshold: 0.5,
+  venueBoost: 0.2
+});
+
+compareUserEngine.initEmptyGrid();
+compareExemplarEngine.initEmptyGrid();
+
 // 2. Reactive State Stores for Svelte Components
 export const agentsStore = writable<Agent[]>(Array.from(engine.agents.values()));
 export const venuesStore = writable<Venue[]>(Array.from(engine.venues.values()));
@@ -37,10 +63,24 @@ export const metricsHistoryStore = writable<SegregationMetrics[]>([engine.getMet
 // Temporary state for the "Exploration" drag-and-drop feature
 export const ghostReactionsStore = writable<ReactionPreview[]>([]);
 export const hoveredVenueId = writable<string | null>(null);
+export const compareUserHoveredVenueIdStore = writable<string | null>(null);
+export const compareExemplarHoveredVenueIdStore = writable<string | null>(null);
 export const isGeneratingVenuesStore = writable<boolean>(false);
 export const policyTargetAveragesStore = writable<MetricAverages | null>(null);
 export const userPolicyResultStore = writable<PolicyRunRecord | null>(null);
 export const exemplarPolicyResultStore = writable<PolicyRunRecord | null>(null);
+export const isComparisonModeStore = writable<boolean>(false);
+
+export const compareUserAgentsStore = writable<Agent[]>([]);
+export const compareUserVenuesStore = writable<Venue[]>([]);
+export const compareExemplarAgentsStore = writable<Agent[]>([]);
+export const compareExemplarVenuesStore = writable<Venue[]>([]);
+
+export const compareUserMetricsHistoryStore = writable<ComparisonTickRecord[]>([]);
+export const compareExemplarMetricsHistoryStore = writable<ComparisonTickRecord[]>([]);
+
+export const compareUserGhostReactionsStore = writable<ReactionPreview[]>([]);
+export const compareExemplarGhostReactionsStore = writable<ReactionPreview[]>([]);
 
 // Internal loop reference for playing/pausing
 let animationFrameId: number;
@@ -51,6 +91,7 @@ const STABILITY_DELTA_THRESHOLD = 0.02;
 const CHAPTER_TWO_SHORT_RUN_TICKS = 50;
 
 let stabilityStartIndex = 0;
+let policyBaselineAgentsSnapshot: Agent[] | null = null;
 
 function rollingMean(values: number[]): number {
   if (values.length === 0) return 0;
@@ -112,6 +153,13 @@ function snapshotVenuePlacement(): Venue[] {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function snapshotAgentsForPolicyBaseline(): Agent[] {
+  return engine
+    .getAgentsSnapshot()
+    .map((agent) => ({ ...agent }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 // 3. Helper: Synchronize the engine state with the Svelte stores
 function syncStores() {
   agentsStore.set(Array.from(engine.agents.values()));
@@ -130,6 +178,35 @@ function recordCurrentMetrics() {
   });
 }
 
+function syncComparisonStores() {
+  compareUserAgentsStore.set(Array.from(compareUserEngine.agents.values()));
+  compareUserVenuesStore.set(Array.from(compareUserEngine.venues.values()));
+  compareExemplarAgentsStore.set(Array.from(compareExemplarEngine.agents.values()));
+  compareExemplarVenuesStore.set(Array.from(compareExemplarEngine.venues.values()));
+}
+
+function resetComparisonStores() {
+  isComparisonModeStore.set(false);
+  compareUserHoveredVenueIdStore.set(null);
+  compareExemplarHoveredVenueIdStore.set(null);
+  compareUserAgentsStore.set([]);
+  compareUserVenuesStore.set([]);
+  compareExemplarAgentsStore.set([]);
+  compareExemplarVenuesStore.set([]);
+  compareUserMetricsHistoryStore.set([]);
+  compareExemplarMetricsHistoryStore.set([]);
+  compareUserGhostReactionsStore.set([]);
+  compareExemplarGhostReactionsStore.set([]);
+}
+
+function recordComparisonMetrics() {
+  const userMetrics = compareUserEngine.getMetrics();
+  const exemplarMetrics = compareExemplarEngine.getMetrics();
+
+  compareUserMetricsHistoryStore.update((history) => [...history, userMetrics]);
+  compareExemplarMetricsHistoryStore.update((history) => [...history, exemplarMetrics]);
+}
+
 // 4. Public Action Functions
 export const simulationActions = {
   resetStabilityWindow() {
@@ -140,10 +217,13 @@ export const simulationActions = {
   reset() {
     engine.initEmptyGrid();
     syncStores();
+    hoveredVenueId.set(null);
     metricsHistoryStore.set([engine.getMetrics()]);
     policyTargetAveragesStore.set(null);
     userPolicyResultStore.set(null);
     exemplarPolicyResultStore.set(null);
+    policyBaselineAgentsSnapshot = null;
+    resetComparisonStores();
     resetStabilityWindowBaseline();
     this.stop();
   },
@@ -210,29 +290,83 @@ export const simulationActions = {
   runUserPolicyEvaluation() {
     this.stop();
     resetStabilityWindowBaseline();
+    policyBaselineAgentsSnapshot = snapshotAgentsForPolicyBaseline();
+    isComparisonModeStore.set(false);
 
     const placement = snapshotVenuePlacement();
-    this.playForTicks(25, () => {
-      userPolicyResultStore.set({
-        placement,
-        averages: calculateAveragesOverLastTicks(25)
+    return new Promise<void>((resolve) => {
+      this.playForTicks(25, () => {
+        userPolicyResultStore.set({
+          placement,
+          averages: calculateAveragesOverLastTicks(25)
+        });
+        resolve();
       });
     });
   },
 
   runExemplarPolicyEvaluation() {
     this.stop();
+    if (!policyBaselineAgentsSnapshot) {
+      policyBaselineAgentsSnapshot = snapshotAgentsForPolicyBaseline();
+    }
     engine.applyIntegratedVenuePolicy();
     syncStores();
     recordCurrentMetrics();
     resetStabilityWindowBaseline();
 
     const placement = snapshotVenuePlacement();
-    this.playForTicks(25, () => {
-      exemplarPolicyResultStore.set({
-        placement,
-        averages: calculateAveragesOverLastTicks(25)
+    return new Promise<void>((resolve) => {
+      this.playForTicks(25, () => {
+        exemplarPolicyResultStore.set({
+          placement,
+          averages: calculateAveragesOverLastTicks(25)
+        });
+        resolve();
       });
+    });
+  },
+
+  runSideBySideComparison() {
+    this.stop();
+
+    const userResult = get(userPolicyResultStore);
+    const exemplarResult = get(exemplarPolicyResultStore);
+    const baselineAgents = policyBaselineAgentsSnapshot ?? snapshotAgentsForPolicyBaseline();
+    const userPlacement = userResult?.placement ?? snapshotVenuePlacement();
+    const exemplarPlacement = exemplarResult?.placement ?? snapshotVenuePlacement();
+
+    compareUserEngine.initializeScenario(baselineAgents, userPlacement);
+    compareExemplarEngine.initializeScenario(baselineAgents, exemplarPlacement);
+    compareUserHoveredVenueIdStore.set(null);
+    compareExemplarHoveredVenueIdStore.set(null);
+
+    compareUserMetricsHistoryStore.set([compareUserEngine.getMetrics()]);
+    compareExemplarMetricsHistoryStore.set([compareExemplarEngine.getMetrics()]);
+    syncComparisonStores();
+    isComparisonModeStore.set(true);
+
+    return new Promise<void>((resolve) => {
+      let ticksRemaining = 25;
+      const loop = () => {
+        const userActive = compareUserEngine.tick();
+        const exemplarActive = compareExemplarEngine.tick();
+        ticksRemaining--;
+
+        syncComparisonStores();
+        recordComparisonMetrics();
+
+        if ((userActive || exemplarActive) && ticksRemaining > 0) {
+          setTimeout(() => {
+            requestAnimationFrame(loop);
+          }, 200);
+          return;
+        }
+
+        resolve();
+      };
+
+      loop();
     });
   },
 

@@ -206,6 +206,24 @@ p {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
+.grid-compare-layout {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.compare-grid-panel {
+  padding: 0.75rem;
+}
+
+.compare-grid-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: #4b5563;
+  text-align: center;
+}
+
 .board {
   border: 2px solid #ccc;
   background-color: #fff;
@@ -357,6 +375,10 @@ p {
 
     .simulation-controls {
       justify-content: center;
+    }
+
+    .grid-compare-layout {
+      grid-template-columns: 1fr;
     }
   }
 

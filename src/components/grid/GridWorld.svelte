@@ -4,6 +4,7 @@
   import VenueVisual from './VenueVisual.svelte';
   import type { Agent, ReactionPreview, Venue } from '../../engine/types/models';
   import type { Writable } from 'svelte/store';
+  import { hoveredVenueId } from '../../stores/simulationStore';
   import { currentChapterIndex } from '../../stores/narrativeStore'; 
   import { WORLD_HEIGHT, WORLD_WIDTH } from '../../engine/world';
   
@@ -15,11 +16,16 @@
   export let agentsStore: Writable<Agent[]>;
   export let venuesStore: Writable<Venue[]>;
   export let ghostReactionsStore: Writable<ReactionPreview[]>;
+  export let hoveredVenueStore: Writable<string | null> = hoveredVenueId;
+  export let allowInteractions = true;
+  export let compactMode = false;
 
   const width = WORLD_WIDTH;
   const height = WORLD_HEIGHT;
-  const MIN_CELL_SIZE = 28;
-  const MAX_CELL_SIZE = 60;
+  const STANDARD_MIN_CELL_SIZE = 28;
+  const STANDARD_MAX_CELL_SIZE = 60;
+  const COMPACT_MIN_CELL_SIZE = 16;
+  const COMPACT_MAX_CELL_SIZE = 30;
 
   let boardElement: SVGSVGElement | null = null;
   let cellSize = 45; // Pixels per grid cell
@@ -37,7 +43,9 @@
 
     const sizeFromWidth = Math.floor(availableWidth / width);
     const sizeFromHeight = Math.floor(availableHeight / height);
-    const nextSize = clamp(Math.min(sizeFromWidth, sizeFromHeight), MIN_CELL_SIZE, MAX_CELL_SIZE);
+    const minSize = compactMode ? COMPACT_MIN_CELL_SIZE : STANDARD_MIN_CELL_SIZE;
+    const maxSize = compactMode ? COMPACT_MAX_CELL_SIZE : STANDARD_MAX_CELL_SIZE;
+    const nextSize = clamp(Math.min(sizeFromWidth, sizeFromHeight), minSize, maxSize);
 
     if (Number.isFinite(nextSize) && nextSize > 0) {
       cellSize = nextSize;
@@ -93,7 +101,8 @@
         {cellSize} 
         boardWidth={width}
         boardHeight={height}
-        isDraggable={$currentChapterIndex >= 5}
+        {hoveredVenueStore}
+        isDraggable={allowInteractions && $currentChapterIndex >= 5}
       />
     {/each}
   </g>
@@ -105,8 +114,9 @@
         {cellSize} 
         boardWidth={width}
         boardHeight={height}
+        {hoveredVenueStore}
         ghostReaction={$ghostReactionsStore.find(r => r.id === agent.id)}
-        isDraggable={$currentChapterIndex <= 3}
+        isDraggable={allowInteractions && $currentChapterIndex <= 3}
         showProtagonistBadge={$currentChapterIndex <= 1 && agent.id === 'agent_protagonist'}
       />
     {/each}

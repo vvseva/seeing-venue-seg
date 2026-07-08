@@ -71,6 +71,13 @@ var chaptersData = [
 		content: "Now compare your policy with an exemplar integrated venue placement. The model keeps four venues and places them far from each other and from boundaries with alternating colors. We run 25 ticks and compare average indexes.",
 		actionLabel: "Run Exemplar Policy (25 Ticks)",
 		dispatchAction: "RUN_EXEMPLAR_POLICY"
+	},
+	{
+		id: 10,
+		title: "Side-by-Side Policy Comparison",
+		content: "Both worlds now run in parallel: your venue policy on the left and the exemplar integrated policy on the right. Compare segregation trajectories in colorblind-friendly chart lines.",
+		actionLabel: "Run Side-by-Side Comparison",
+		dispatchAction: "RUN_SIDE_BY_SIDE_COMPARE"
 	}
 ];
 var currentChapterIndex = writable(0);
@@ -670,6 +677,30 @@ var SimulationEngine = class {
 		for (const placement of placements) this.placeVenue(placement.id, placement.x, placement.y, placement.color);
 		this.updateAllUtilities();
 	}
+	getAgentsSnapshot() {
+		return Array.from(this.agents.values()).map((agent) => ({ ...agent }));
+	}
+	getVenuesSnapshot() {
+		return Array.from(this.venues.values()).map((venue) => ({ ...venue }));
+	}
+	initializeScenario(baseAgents, venuePlacements) {
+		this.initEmptyGrid();
+		for (const sourceAgent of baseAgents) {
+			if (!this.isWithinBounds(sourceAgent.x, sourceAgent.y)) continue;
+			if (this.grid[sourceAgent.y][sourceAgent.x] !== null) continue;
+			const agent = {
+				...sourceAgent,
+				currentVenueId: null,
+				isHappy: false,
+				utility: 0
+			};
+			this.agents.set(agent.id, agent);
+			this.grid[agent.y][agent.x] = agent.id;
+		}
+		for (const sourceVenue of venuePlacements) this.placeVenue(sourceVenue.id, sourceVenue.x, sourceVenue.y, sourceVenue.color);
+		this.tickCount = 0;
+		this.updateAllUtilities();
+	}
 	getMetrics() {
 		return calculateMetrics(this.agents, this.width, this.height, this.tickCount);
 	}
@@ -684,23 +715,50 @@ var engine = new SimulationEngine({
 	venueBoost: .2
 });
 engine.initEmptyGrid();
+var compareUserEngine = new SimulationEngine({
+	width: 12,
+	height: 12,
+	density: .8,
+	similarityThreshold: .5,
+	venueBoost: .2
+});
+var compareExemplarEngine = new SimulationEngine({
+	width: 12,
+	height: 12,
+	density: .8,
+	similarityThreshold: .5,
+	venueBoost: .2
+});
+compareUserEngine.initEmptyGrid();
+compareExemplarEngine.initEmptyGrid();
 var agentsStore = writable(Array.from(engine.agents.values()));
 var venuesStore = writable(Array.from(engine.venues.values()));
 writable(engine.tickCount);
 var metricsHistoryStore = writable([engine.getMetrics()]);
 var ghostReactionsStore = writable([]);
 var hoveredVenueId = writable(null);
+var compareUserHoveredVenueIdStore = writable(null);
+var compareExemplarHoveredVenueIdStore = writable(null);
 var isGeneratingVenuesStore = writable(false);
 var policyTargetAveragesStore = writable(null);
 var userPolicyResultStore = writable(null);
 var exemplarPolicyResultStore = writable(null);
+writable(false);
+var compareUserAgentsStore = writable([]);
+var compareUserVenuesStore = writable([]);
+var compareExemplarAgentsStore = writable([]);
+var compareExemplarVenuesStore = writable([]);
+var compareUserMetricsHistoryStore = writable([]);
+var compareExemplarMetricsHistoryStore = writable([]);
+var compareUserGhostReactionsStore = writable([]);
+var compareExemplarGhostReactionsStore = writable([]);
 var isPlayingStore = writable(false);
 //#endregion
 //#region src/components/narrative/Storyboard.svelte
 function Storyboard($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		$$renderer.push(`<div class="storyboard"><h2>${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).title)}</h2> <p class="content">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).content)}</p> <div class="actions"><button class="btn-primary"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}>`);
+		$$renderer.push(`<div class="storyboard"><h2>${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).title)}</h2> <p class="content">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).content)}</p> <div class="actions"><button class="btn-primary"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore) || false, true)}>`);
 		if (store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore)) {
 			$$renderer.push("<!--[0-->");
 			$$renderer.push(`<span class="spinner" aria-hidden="true"></span>`);
@@ -733,6 +791,8 @@ function LiveCharts($$renderer, $$props) {
 		let metricsHistory, latestMetric;
 		const width = 320;
 		const height = 190;
+		const COMPARISON_USER_COLOR = "#0072B2";
+		const COMPARISON_EXEMPLAR_COLOR = "#D55E00";
 		const margin = {
 			top: 20,
 			right: 20,
@@ -756,17 +816,25 @@ function LiveCharts($$renderer, $$props) {
 			}
 		];
 		let hoveredMetric = null;
-		function createXScale(history) {
-			return d3.scaleLinear().domain([0, d3.max(history, (metric) => metric.tick) || 10]).range([0, innerWidth]);
+		function createXScale(history, comparisonUser = [], comparisonExemplar = []) {
+			const maxTick = Math.max(d3.max(history, (metric) => metric.tick) || 0, d3.max(comparisonUser, (metric) => metric.tick) || 0, d3.max(comparisonExemplar, (metric) => metric.tick) || 0, 10);
+			return d3.scaleLinear().domain([0, maxTick]).range([0, innerWidth]);
 		}
-		function createYScale(history, metricKey) {
+		function createYScale(history, metricKey, comparisonUser = [], comparisonExemplar = []) {
 			const recentValues = history.slice(-50).map((metric) => metric[metricKey]);
+			const recentComparisonUserValues = comparisonUser.slice(-50).map((metric) => metric[metricKey]);
+			const recentComparisonExemplarValues = comparisonExemplar.slice(-50).map((metric) => metric[metricKey]);
 			const referenceValues = [
 				store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)?.[metricKey] ?? 0,
 				store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages[metricKey] ?? 0,
 				store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages[metricKey] ?? 0
 			];
-			const allValues = [...recentValues, ...referenceValues];
+			const allValues = [
+				...recentValues,
+				...recentComparisonUserValues,
+				...recentComparisonExemplarValues,
+				...referenceValues
+			];
 			const minValue = d3.min(allValues) ?? 0;
 			const maxValue = d3.max(allValues) ?? 1;
 			const range = maxValue - minValue;
@@ -775,9 +843,9 @@ function LiveCharts($$renderer, $$props) {
 			const yMax = Math.max(yMin + .08, maxValue + padding);
 			return d3.scaleLinear().domain([yMin, yMax]).range([innerHeight, 0]);
 		}
-		function createPathData(history, metricKey) {
-			const xScale = createXScale(history);
-			const yScale = createYScale(history, metricKey);
+		function createPathData(history, metricKey, comparisonUser = [], comparisonExemplar = []) {
+			const xScale = createXScale(history, comparisonUser, comparisonExemplar);
+			const yScale = createYScale(history, metricKey, comparisonUser, comparisonExemplar);
 			return d3.line().x((metric) => xScale(metric.tick)).y((metric) => yScale(metric[metricKey])).curve(d3.curveMonotoneX)(history) || "";
 		}
 		function getMetricValue(metric, metricKey) {
@@ -793,34 +861,50 @@ function LiveCharts($$renderer, $$props) {
 		const each_array = ensure_array_like(metricConfigs);
 		for (let $$index_1 = 0, $$length = each_array.length; $$index_1 < $$length; $$index_1++) {
 			let metricConfig = each_array[$$index_1];
-			const xScale = createXScale(metricsHistory);
-			const yScale = createYScale(metricsHistory, metricConfig.key);
-			const pathData = createPathData(metricsHistory, metricConfig.key);
+			const comparisonUserHistory = store_get($$store_subs ??= {}, "$compareUserMetricsHistoryStore", compareUserMetricsHistoryStore);
+			const comparisonExemplarHistory = store_get($$store_subs ??= {}, "$compareExemplarMetricsHistoryStore", compareExemplarMetricsHistoryStore);
+			const isSideBySideStage = store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 10 && comparisonUserHistory.length > 0 && comparisonExemplarHistory.length > 0;
+			const primaryHistory = isSideBySideStage ? comparisonUserHistory : metricsHistory;
+			const secondaryHistory = isSideBySideStage ? comparisonExemplarHistory : [];
+			const xScale = createXScale(primaryHistory, secondaryHistory);
+			const yScale = createYScale(primaryHistory, metricConfig.key, secondaryHistory);
+			const primaryPath = createPathData(primaryHistory, metricConfig.key, secondaryHistory);
+			const secondaryPath = createPathData(secondaryHistory, metricConfig.key, secondaryHistory);
+			const latestPrimaryMetric = primaryHistory.at(-1);
+			const latestSecondaryMetric = secondaryHistory.at(-1);
 			$$renderer.push(`<div class="chart-container"><h3>${escape_html(metricConfig.title)}</h3> <p class="chart-value">`);
-			if (void 0 === metricConfig.key) {
+			if (isSideBySideStage && latestPrimaryMetric && latestSecondaryMetric) {
 				$$renderer.push("<!--[0-->");
+				$$renderer.push(`Tick ${escape_html(latestPrimaryMetric.tick)}: You ${escape_html(getMetricValue(latestPrimaryMetric, metricConfig.key).toFixed(3))} | Exemplar ${escape_html(getMetricValue(latestSecondaryMetric, metricConfig.key).toFixed(3))}`);
+			} else if (void 0 === metricConfig.key) {
+				$$renderer.push("<!--[1-->");
 				$$renderer.push(`Tick ${escape_html(hoveredMetric.metric.tick)}: ${escape_html(getMetricValue(hoveredMetric.metric, metricConfig.key).toFixed(3))}`);
 			} else if (latestMetric) {
-				$$renderer.push("<!--[1-->");
+				$$renderer.push("<!--[2-->");
 				$$renderer.push(`Tick ${escape_html(latestMetric.tick)}: ${escape_html(getMetricValue(latestMetric, metricConfig.key).toFixed(3))}`);
 			} else {
 				$$renderer.push("<!--[-1-->");
 				$$renderer.push(`Waiting for simulation data...`);
 			}
 			$$renderer.push(`<!--]--></p> `);
-			if (store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)) {
+			if (!isSideBySideStage && store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<p class="chart-value">Target avg (25 ticks): ${escape_html(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore)[metricConfig.key].toFixed(3))}</p>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]--> `);
-			if (store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)) {
+			if (!isSideBySideStage && store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<p class="chart-value">Your policy avg: ${escape_html(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore).averages[metricConfig.key].toFixed(3))}</p>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]--> `);
-			if (store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)) {
+			if (!isSideBySideStage && store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<p class="chart-value">Exemplar avg: ${escape_html(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore).averages[metricConfig.key].toFixed(3))}</p>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]--> `);
+			if (isSideBySideStage) {
+				$$renderer.push("<!--[0-->");
+				$$renderer.push(`<p class="chart-value">Blue: your policy trajectory | Orange: exemplar trajectory</p>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]--> <svg${attr("viewBox", `0 0 ${width} ${height}`)} preserveAspectRatio="none" role="img"${attr("aria-label", `Interactive chart for ${metricConfig.title}`)}><g${attr("transform", `translate(${margin.left},${margin.top})`)}><!--[-->`);
 			const each_array_1 = ensure_array_like(yScale.ticks(4));
@@ -828,29 +912,52 @@ function LiveCharts($$renderer, $$props) {
 				let tick = each_array_1[$$index];
 				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(tick))}${attr("y2", yScale(tick))} stroke="#eee"></line><text x="-5"${attr("y", yScale(tick) + 4)} text-anchor="end" font-size="10" fill="#888">${escape_html(tick.toFixed(2))}</text>`);
 			}
-			$$renderer.push(`<!--]--><path${attr("d", pathData)} fill="none"${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>`);
-			if (latestMetric) {
-				$$renderer.push("<!--[0-->");
-				$$renderer.push(`<circle${attr("cx", xScale(latestMetric.tick))}${attr("cy", yScale(getMetricValue(latestMetric, metricConfig.key)))} r="4"${attr("fill", chartMetricsColorScale(metricConfig.key))}></circle>`);
-			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]-->`);
-			if (getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key) !== null) {
+			if (isSideBySideStage) {
 				$$renderer.push("<!--[0-->");
-				const targetValue = getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key);
-				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(targetValue))}${attr("y2", yScale(targetValue))} stroke="#6b7280" stroke-dasharray="8 4" stroke-width="1.5" opacity="0.9"></line>`);
-			} else $$renderer.push("<!--[-1-->");
-			$$renderer.push(`<!--]-->`);
-			if (getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key) !== null) {
-				$$renderer.push("<!--[0-->");
-				const userValue = getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key);
-				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(userValue))}${attr("y2", yScale(userValue))} stroke="#0f766e" stroke-dasharray="4 4" stroke-width="1.5" opacity="0.9"></line>`);
-			} else $$renderer.push("<!--[-1-->");
-			$$renderer.push(`<!--]-->`);
-			if (getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key) !== null) {
-				$$renderer.push("<!--[0-->");
-				const exemplarValue = getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key);
-				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(exemplarValue))}${attr("y2", yScale(exemplarValue))} stroke="#7c3aed" stroke-dasharray="2 3" stroke-width="1.5" opacity="0.9"></line>`);
-			} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<path${attr("d", primaryPath)} fill="none"${attr("stroke", COMPARISON_USER_COLOR)} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.92"></path>`);
+				if (secondaryHistory.length > 1) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<path${attr("d", secondaryPath)} fill="none"${attr("stroke", COMPARISON_EXEMPLAR_COLOR)} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.92"></path>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (latestPrimaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<circle${attr("cx", xScale(latestPrimaryMetric.tick))}${attr("cy", yScale(getMetricValue(latestPrimaryMetric, metricConfig.key)))} r="4"${attr("fill", COMPARISON_USER_COLOR)}></circle>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (latestSecondaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<circle${attr("cx", xScale(latestSecondaryMetric.tick))}${attr("cy", yScale(getMetricValue(latestSecondaryMetric, metricConfig.key)))} r="4"${attr("fill", COMPARISON_EXEMPLAR_COLOR)}></circle>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+			} else {
+				$$renderer.push("<!--[-1-->");
+				$$renderer.push(`<path${attr("d", primaryPath)} fill="none"${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>`);
+				if (latestPrimaryMetric) {
+					$$renderer.push("<!--[0-->");
+					$$renderer.push(`<circle${attr("cx", xScale(latestPrimaryMetric.tick))}${attr("cy", yScale(getMetricValue(latestPrimaryMetric, metricConfig.key)))} r="4"${attr("fill", chartMetricsColorScale(metricConfig.key))}></circle>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key) !== null) {
+					$$renderer.push("<!--[0-->");
+					const targetValue = getAverageValue(store_get($$store_subs ??= {}, "$policyTargetAveragesStore", policyTargetAveragesStore), metricConfig.key);
+					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(targetValue))}${attr("y2", yScale(targetValue))} stroke="#6b7280" stroke-dasharray="8 4" stroke-width="1.5" opacity="0.9"></line>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key) !== null) {
+					$$renderer.push("<!--[0-->");
+					const userValue = getAverageValue(store_get($$store_subs ??= {}, "$userPolicyResultStore", userPolicyResultStore)?.averages, metricConfig.key);
+					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(userValue))}${attr("y2", yScale(userValue))} stroke="#0f766e" stroke-dasharray="4 4" stroke-width="1.5" opacity="0.9"></line>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+				if (getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key) !== null) {
+					$$renderer.push("<!--[0-->");
+					const exemplarValue = getAverageValue(store_get($$store_subs ??= {}, "$exemplarPolicyResultStore", exemplarPolicyResultStore)?.averages, metricConfig.key);
+					$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(exemplarValue))}${attr("y2", yScale(exemplarValue))} stroke="#7c3aed" stroke-dasharray="2 3" stroke-width="1.5" opacity="0.9"></line>`);
+				} else $$renderer.push("<!--[-1-->");
+				$$renderer.push(`<!--]-->`);
+			}
 			$$renderer.push(`<!--]-->`);
 			if (void 0 === metricConfig.key) {
 				$$renderer.push("<!--[0-->");
@@ -882,6 +989,7 @@ function AgentVisual($$renderer, $$props) {
 		let cellSize = $$props["cellSize"];
 		let boardWidth = $$props["boardWidth"];
 		let boardHeight = $$props["boardHeight"];
+		let hoveredVenueStore = $$props["hoveredVenueStore"];
 		let ghostReaction = fallback($$props["ghostReaction"], void 0);
 		let isDraggable = fallback($$props["isDraggable"], false);
 		let showProtagonistBadge = fallback($$props["showProtagonistBadge"], false);
@@ -889,7 +997,7 @@ function AgentVisual($$renderer, $$props) {
 		$: isHappy = ghostReaction ? ghostReaction.hypotheticalHappiness : agent.isHappy;
 		$: tx = agent.x * cellSize + cellSize / 2;
 		$: ty = agent.y * cellSize + cellSize / 2;
-		$: isWiggling = store_get($$store_subs ??= {}, "$hoveredVenueId", hoveredVenueId) !== null && store_get($$store_subs ??= {}, "$hoveredVenueId", hoveredVenueId) === agent.currentVenueId;
+		$: isWiggling = store_get($$store_subs ??= {}, "$hoveredVenueStore", hoveredVenueStore) !== null && store_get($$store_subs ??= {}, "$hoveredVenueStore", hoveredVenueStore) === agent.currentVenueId;
 		$: utilityWidth = agent.utility * barMaxWidth;
 		$: barX = -(barMaxWidth / 2);
 		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("agent", void 0, { "draggable": isDraggable })}><g${attr_class("agent-body", void 0, { "wiggle": isWiggling })}><g class="utility-bar-group"><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", barMaxWidth)} height="5" fill="#e0e0e0" rx="2.5"></rect><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", utilityWidth)} height="5"${attr("fill", agent.color)} rx="2.5"></rect></g><circle cx="0" cy="0"${attr("r", cellSize * .35)}${attr("fill", agent.color)}${attr("stroke", isHappy ? "#111" : "#fff")}${attr("stroke-width", isHappy ? 0 : 2)}${attr("stroke-dasharray", isHappy ? "none" : "4 2")}></circle><text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none" class="emoji">${escape_html(isHappy ? "🙂" : "☹️")}</text>`);
@@ -904,6 +1012,7 @@ function AgentVisual($$renderer, $$props) {
 			cellSize,
 			boardWidth,
 			boardHeight,
+			hoveredVenueStore,
 			ghostReaction,
 			isDraggable,
 			showProtagonistBadge
@@ -920,11 +1029,12 @@ function VenueVisual($$renderer, $$props) {
 		let cellSize = $$props["cellSize"];
 		let boardWidth = $$props["boardWidth"];
 		let boardHeight = $$props["boardHeight"];
+		let hoveredVenueStore = $$props["hoveredVenueStore"];
 		let isDraggable = fallback($$props["isDraggable"], false);
 		const size = cellSize - 16;
 		$: tx = venue.x * cellSize + 8;
 		$: ty = venue.y * cellSize + 8;
-		$: isHovered = store_get($$store_subs ??= {}, "$hoveredVenueId", hoveredVenueId) === venue.id;
+		$: isHovered = store_get($$store_subs ??= {}, "$hoveredVenueStore", hoveredVenueStore) === venue.id;
 		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("venue", void 0, {
 			"draggable": isDraggable,
 			"hovered": isHovered
@@ -935,6 +1045,7 @@ function VenueVisual($$renderer, $$props) {
 			cellSize,
 			boardWidth,
 			boardHeight,
+			hoveredVenueStore,
 			isDraggable
 		});
 	});
@@ -948,6 +1059,9 @@ function GridWorld($$renderer, $$props) {
 		let agentsStore = $$props["agentsStore"];
 		let venuesStore = $$props["venuesStore"];
 		let ghostReactionsStore = $$props["ghostReactionsStore"];
+		let hoveredVenueStore = fallback($$props["hoveredVenueStore"], hoveredVenueId);
+		let allowInteractions = fallback($$props["allowInteractions"], true);
+		let compactMode = fallback($$props["compactMode"], false);
 		const width = 12;
 		const height = 12;
 		let cellSize = 45;
@@ -974,7 +1088,8 @@ function GridWorld($$renderer, $$props) {
 				cellSize,
 				boardWidth: width,
 				boardHeight: height,
-				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 5
+				hoveredVenueStore,
+				isDraggable: allowInteractions && store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 5
 			});
 		}
 		$$renderer.push(`<!--]--></g><g class="layer-agents"><!--[-->`);
@@ -986,8 +1101,9 @@ function GridWorld($$renderer, $$props) {
 				cellSize,
 				boardWidth: width,
 				boardHeight: height,
+				hoveredVenueStore,
 				ghostReaction: store_get($$store_subs ??= {}, "$ghostReactionsStore", ghostReactionsStore).find((r) => r.id === agent.id),
-				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 3,
+				isDraggable: allowInteractions && store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 3,
 				showProtagonistBadge: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 1 && agent.id === "agent_protagonist"
 			});
 		}
@@ -996,7 +1112,10 @@ function GridWorld($$renderer, $$props) {
 		bind_props($$props, {
 			agentsStore,
 			venuesStore,
-			ghostReactionsStore
+			ghostReactionsStore,
+			hoveredVenueStore,
+			allowInteractions,
+			compactMode
 		});
 	});
 }
@@ -1005,13 +1124,40 @@ function GridWorld($$renderer, $$props) {
 function _page($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><h1>Segregation Dynamics: An Agent-Based Model</h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></header> <div class="exhibit-content"><section class="simulation-canvas"><div class="simulation-controls"><button class="simulation-toggle"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}${attr("aria-label", store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause simulation" : "Play simulation")}><span class="control-icon" aria-hidden="true">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "❚❚" : "▶")}</span> <span>${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Play")} simulation</span></button></div> <div class="grid-wrapper">`);
-		GridWorld($$renderer, {
-			agentsStore,
-			venuesStore,
-			ghostReactionsStore
-		});
-		$$renderer.push(`<!----></div></section> `);
+		$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><h1>Segregation Dynamics: An Agent-Based Model</h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></header> <div class="exhibit-content"><section class="simulation-canvas"><div class="simulation-controls"><button class="simulation-toggle"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}${attr("aria-label", store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause simulation" : "Play simulation")}><span class="control-icon" aria-hidden="true">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "❚❚" : "▶")}</span> <span>${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Play")} simulation</span></button></div> `);
+		if (store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 10) {
+			$$renderer.push("<!--[0-->");
+			$$renderer.push(`<div class="grid-compare-layout"><div class="grid-wrapper compare-grid-panel"><h3 class="compare-grid-title">Your Policy</h3> `);
+			GridWorld($$renderer, {
+				agentsStore: compareUserAgentsStore,
+				venuesStore: compareUserVenuesStore,
+				ghostReactionsStore: compareUserGhostReactionsStore,
+				hoveredVenueStore: compareUserHoveredVenueIdStore,
+				allowInteractions: false,
+				compactMode: true
+			});
+			$$renderer.push(`<!----></div> <div class="grid-wrapper compare-grid-panel"><h3 class="compare-grid-title">Exemplar Policy</h3> `);
+			GridWorld($$renderer, {
+				agentsStore: compareExemplarAgentsStore,
+				venuesStore: compareExemplarVenuesStore,
+				ghostReactionsStore: compareExemplarGhostReactionsStore,
+				hoveredVenueStore: compareExemplarHoveredVenueIdStore,
+				allowInteractions: false,
+				compactMode: true
+			});
+			$$renderer.push(`<!----></div></div>`);
+		} else {
+			$$renderer.push("<!--[-1-->");
+			$$renderer.push(`<div class="grid-wrapper">`);
+			GridWorld($$renderer, {
+				agentsStore,
+				venuesStore,
+				ghostReactionsStore,
+				hoveredVenueStore: hoveredVenueId
+			});
+			$$renderer.push(`<!----></div>`);
+		}
+		$$renderer.push(`<!--]--></section> `);
 		Sidebar($$renderer, {});
 		$$renderer.push(`<!----></div></main>`);
 		if ($$store_subs) unsubscribe_stores($$store_subs);

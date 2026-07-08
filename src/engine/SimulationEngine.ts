@@ -786,6 +786,40 @@ export class SimulationEngine {
     this.updateAllUtilities();
   }
 
+  public getAgentsSnapshot(): Agent[] {
+    return Array.from(this.agents.values()).map((agent) => ({ ...agent }));
+  }
+
+  public getVenuesSnapshot(): Venue[] {
+    return Array.from(this.venues.values()).map((venue) => ({ ...venue }));
+  }
+
+  public initializeScenario(baseAgents: Agent[], venuePlacements: Venue[]): void {
+    this.initEmptyGrid();
+
+    for (const sourceAgent of baseAgents) {
+      if (!this.isWithinBounds(sourceAgent.x, sourceAgent.y)) continue;
+      if (this.grid[sourceAgent.y][sourceAgent.x] !== null) continue;
+
+      const agent: Agent = {
+        ...sourceAgent,
+        currentVenueId: null,
+        isHappy: false,
+        utility: 0
+      };
+
+      this.agents.set(agent.id, agent);
+      this.grid[agent.y][agent.x] = agent.id;
+    }
+
+    for (const sourceVenue of venuePlacements) {
+      this.placeVenue(sourceVenue.id, sourceVenue.x, sourceVenue.y, sourceVenue.color);
+    }
+
+    this.tickCount = 0;
+    this.updateAllUtilities();
+  }
+
   // --- METRICS ---
 
   public getMetrics(): SegregationMetrics {

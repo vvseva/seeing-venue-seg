@@ -1,12 +1,14 @@
 <script lang="ts">
   import * as d3 from 'd3';
+  import type { Writable } from 'svelte/store';
   import type { Agent } from '../../engine/types/models';
-  import { simulationActions, hoveredVenueId } from '../../stores/simulationStore';
+  import { simulationActions } from '../../stores/simulationStore';
   
   export let agent: Agent;
   export let cellSize: number;
   export let boardWidth: number;
   export let boardHeight: number;
+  export let hoveredVenueStore: Writable<string | null>;
   export let ghostReaction: { hypotheticalHappiness: boolean } | undefined = undefined;
   export let isDraggable: boolean = false;
   export let showProtagonistBadge: boolean = false;
@@ -19,7 +21,7 @@
   $: ty = agent.y * cellSize + cellSize / 2;
 
   // React to the venue hover state for the wiggle animation
-  $: isWiggling = $hoveredVenueId !== null && $hoveredVenueId === agent.currentVenueId;
+  $: isWiggling = $hoveredVenueStore !== null && $hoveredVenueStore === agent.currentVenueId;
 
   // Utility bar calculations
   const barMaxWidth = cellSize * 0.7; // Scale to cell size

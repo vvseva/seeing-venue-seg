@@ -14,6 +14,7 @@ export interface Chapter {
     | 'PLAY_SIMULATION'
     | 'RUN_USER_POLICY'
     | 'RUN_EXEMPLAR_POLICY'
+    | 'RUN_SIDE_BY_SIDE_COMPARE'
     | 'RESET';
 }
 
@@ -87,6 +88,13 @@ const chaptersData: Chapter[] = [
     content: "Now compare your policy with an exemplar integrated venue placement. The model keeps four venues and places them far from each other and from boundaries with alternating colors. We run 25 ticks and compare average indexes.",
     actionLabel: "Run Exemplar Policy (25 Ticks)",
     dispatchAction: 'RUN_EXEMPLAR_POLICY'
+  },
+  {
+    id: 10,
+    title: "Side-by-Side Policy Comparison",
+    content: "Both worlds now run in parallel: your venue policy on the left and the exemplar integrated policy on the right. Compare segregation trajectories in colorblind-friendly chart lines.",
+    actionLabel: "Run Side-by-Side Comparison",
+    dispatchAction: 'RUN_SIDE_BY_SIDE_COMPARE'
   }
 ];
 
