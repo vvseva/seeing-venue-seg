@@ -10,8 +10,8 @@
     title: string;
   };
 
-  const width = 300;
-  const height = 200;
+  const width = 320;
+  const height = 190;
   const margin = { top: 20, right: 20, bottom: 30, left: 40 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
@@ -23,6 +23,7 @@
 
   $: metricsHistory = $metricsHistoryStore;
   $: latestMetric = metricsHistory.at(-1);
+  let hoveredMetric: { key: MetricKey; metric: SegregationMetrics } | null = null;
 
   function createXScale(history: SegregationMetrics[]) {
     return d3.scaleLinear()
@@ -51,6 +52,29 @@
   function getMetricValue(metric: SegregationMetrics, metricKey: MetricKey) {
     return metric[metricKey];
   }
+
+  function getClosestMetric(history: SegregationMetrics[], metricKey: MetricKey, pointerX: number) {
+    if (history.length === 0) return null;
+
+    const xScale = createXScale(history);
+    const domainX = xScale.invert(pointerX);
+    const bisectTick = d3.bisector((metric: SegregationMetrics) => metric.tick).center;
+    const index = bisectTick(history, domainX);
+    const metric = history[index] ?? history.at(-1);
+
+    return metric ? { key: metricKey, metric } : null;
+  }
+
+  function handlePointerMove(event: PointerEvent, history: SegregationMetrics[], metricKey: MetricKey) {
+    const svg = event.currentTarget as SVGSVGElement;
+    const rect = svg.getBoundingClientRect();
+    const relativeX = ((event.clientX - rect.left) / rect.width) * innerWidth;
+    hoveredMetric = getClosestMetric(history, metricKey, Math.max(0, Math.min(innerWidth, relativeX)));
+  }
+
+  function handlePointerLeave() {
+    hoveredMetric = null;
+  }
 </script>
 
 <div class="charts-stack">
@@ -61,14 +85,23 @@
     <div class="chart-container">
       <h3>{metricConfig.title}</h3>
       <p class="chart-value">
-        {#if latestMetric}
+        {#if hoveredMetric?.key === metricConfig.key}
+          Tick {hoveredMetric.metric.tick}: {getMetricValue(hoveredMetric.metric, metricConfig.key).toFixed(3)}
+        {:else if latestMetric}
           Tick {latestMetric.tick}: {getMetricValue(latestMetric, metricConfig.key).toFixed(3)}
         {:else}
           Waiting for simulation data...
         {/if}
       </p>
       
-      <svg {width} {height}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`Interactive chart for ${metricConfig.title}`}
+        on:pointermove={(event) => handlePointerMove(event, metricsHistory, metricConfig.key)}
+        on:pointerleave={handlePointerLeave}
+      >
         <g transform={`translate(${margin.left},${margin.top})`}>
           {#each yScale.ticks(4) as tick}
             <line 
@@ -98,6 +131,28 @@
               cy={yScale(getMetricValue(latestMetric, metricConfig.key))}
               r="4"
               fill={chartMetricsColorScale(metricConfig.key)}
+            />
+          {/if}
+
+          {#if hoveredMetric?.key === metricConfig.key}
+            {@const hoveredValue = getMetricValue(hoveredMetric.metric, metricConfig.key)}
+            <line
+              x1={xScale(hoveredMetric.metric.tick)}
+              x2={xScale(hoveredMetric.metric.tick)}
+              y1="0"
+              y2={innerHeight}
+              stroke={chartMetricsColorScale(metricConfig.key)}
+              stroke-dasharray="4 4"
+              stroke-width="1.5"
+              opacity="0.45"
+            />
+            <circle
+              cx={xScale(hoveredMetric.metric.tick)}
+              cy={yScale(hoveredValue)}
+              r="5"
+              fill={chartMetricsColorScale(metricConfig.key)}
+              stroke="white"
+              stroke-width="2"
             />
           {/if}
         </g>

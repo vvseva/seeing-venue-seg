@@ -7,7 +7,6 @@ export interface Agent {
   color: EntityColor;
   isHappy: boolean;
   utility: number;
-  isProtagonist?: boolean;
   currentVenueId?: string | null; 
 }
 

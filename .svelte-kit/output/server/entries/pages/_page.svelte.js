@@ -1,42 +1,51 @@
-import { C as escape_html, D as writable, S as attr, T as derived, c as stringify, i as ensure_array_like, l as unsubscribe_stores, n as bind_props, s as store_get, st as fallback, t as attr_class } from "../../chunks/server.js";
 import "../../chunks/index-server.js";
+import { C as escape_html, D as writable, S as attr, T as derived, c as stringify, i as ensure_array_like, l as unsubscribe_stores, n as bind_props, s as store_get, st as fallback, t as attr_class } from "../../chunks/server.js";
+import "../../chunks/index-server2.js";
 import * as d3 from "d3";
 //#region src/stores/narrativeStore.ts
 var chaptersData = [
 	{
 		id: 0,
-		title: "Exploration: Baseline Logic",
-		content: "Agents want to live near similar neighbors. Drag an agent to a different cell. Notice how the surrounding agents react instantly to their new neighbor.",
-		actionLabel: "Next: Massive Moves"
+		title: "The First Resident",
+		content: "We start with an empty grid. Let's welcome our very first resident. They currently have no neighbors and no venues to attend.",
+		actionLabel: "Spawn Protagonist",
+		dispatchAction: "SPAWN_PROTAGONIST"
 	},
 	{
 		id: 1,
+		title: "A Crowded Neighborhood",
+		content: "Let's fill the rest of the city. Our initial resident is now surrounded. Drag them around to see how their utility score changes based on their new neighbors.",
+		actionLabel: "Spawn Population",
+		dispatchAction: "SPAWN_POPULATION"
+	},
+	{
+		id: 2,
 		title: "Massive Moves 1",
-		content: "At each tick, the 10% least happy agents will randomly move around until they are happy. Let's watch the macroscopic patterns emerge.",
+		content: "Now we let everyone move. At each tick, unhappy agents will relocate until they are satisfied. Let's watch the macroscopic patterns emerge.",
 		actionLabel: "Run Simulation",
 		dispatchAction: "PLAY_SIMULATION"
 	},
 	{
-		id: 2,
+		id: 3,
 		title: "Outcomes 1",
-		content: "Notice the macro consequences of individual preferences. Look at the graphs: Segregation (clustering and dissimilarity) has naturally increased.",
+		content: "Notice the macro consequences of individual preferences. Segregation has naturally increased.",
 		actionLabel: "Start Tutorial 2: Venues"
 	},
 	{
-		id: 3,
+		id: 4,
 		title: "Venue Generation",
-		content: "Agents now need venues in addition to similar neighbors. We will generate color-exclusive venues using Voronoi Relaxation to cover the emerged neighborhoods.",
+		content: "Agents now factor venues into their utility. We will generate color-exclusive venues using Voronoi Relaxation to cover the emerged neighborhoods.",
 		actionLabel: "Generate Venues",
 		dispatchAction: "GENERATE_VENUES"
 	},
 	{
-		id: 4,
+		id: 5,
 		title: "Exploration: Venue Impact",
-		content: "Venues have a catchment area. Drag a venue into different cells. The agents won't move, but they will show if they are happy or not based on the new venue location.",
+		content: "Venues have a catchment area. Hover over a venue to see who attends it, and drag it to see how it affects local utility.",
 		actionLabel: "Next: Massive Moves 2"
 	},
 	{
-		id: 5,
+		id: 6,
 		title: "Massive Moves & Outcomes 2",
 		content: "Let's run the simulation again. Observe how the introduction of venues changes the previously segregated environment.",
 		actionLabel: "Run Simulation",
@@ -130,13 +139,14 @@ var SimulationEngine = class {
 	density;
 	similarityThreshold;
 	venueBoost;
+	VENUE_RADIUS = 3;
 	grid;
 	agents;
 	venues;
 	tickCount;
 	constructor(config = {}) {
-		this.width = config.width ?? 15;
-		this.height = config.height ?? 15;
+		this.width = config.width ?? 12;
+		this.height = config.height ?? 12;
 		this.density = config.density ?? .7;
 		this.similarityThreshold = config.similarityThreshold ?? .5;
 		this.venueBoost = config.venueBoost ?? .2;
@@ -145,32 +155,50 @@ var SimulationEngine = class {
 		this.venues = /* @__PURE__ */ new Map();
 		this.tickCount = 0;
 	}
-	init() {
+	initEmptyGrid() {
 		this.grid = Array.from({ length: this.height }, () => Array(this.width).fill(null));
 		this.agents.clear();
 		this.venues.clear();
 		this.tickCount = 0;
-		let idCounter = 0;
+	}
+	spawnProtagonist(color = "red") {
+		const centerX = Math.floor(this.width / 2);
+		const centerY = Math.floor(this.height / 2);
+		const id = "agent_protagonist";
+		this.agents.set(id, {
+			id,
+			x: centerX,
+			y: centerY,
+			color,
+			isHappy: true,
+			utility: 1,
+			currentVenueId: null
+		});
+		this.grid[centerY][centerX] = id;
+		this.updateAllUtilities();
+	}
+	spawnPopulation() {
 		const totalCells = this.width * this.height;
-		const targetPopulation = Math.floor(totalCells * this.density);
-		let placed = 0;
-		while (placed < targetPopulation) {
+		const targetAgents = Math.floor(totalCells * this.density) - 1;
+		let spawned = 0;
+		let agentIdCounter = 1;
+		while (spawned < targetAgents) {
 			const x = Math.floor(Math.random() * this.width);
 			const y = Math.floor(Math.random() * this.height);
 			if (this.grid[y][x] === null) {
 				const color = Math.random() > .5 ? "red" : "green";
-				const agentId = `a_${idCounter++}`;
-				const newAgent = {
-					id: agentId,
+				const id = `agent_${agentIdCounter++}`;
+				this.agents.set(id, {
+					id,
 					x,
 					y,
 					color,
 					isHappy: false,
-					utility: 0
-				};
-				this.grid[y][x] = agentId;
-				this.agents.set(agentId, newAgent);
-				placed++;
+					utility: 0,
+					currentVenueId: null
+				});
+				this.grid[y][x] = id;
+				spawned++;
 			}
 		}
 		this.updateAllUtilities();
@@ -217,7 +245,7 @@ var SimulationEngine = class {
 			if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
 				const occupantId = this.grid[ny][nx];
 				if (occupantId && occupantId !== ignoreId) {
-					if (occupantId.startsWith("a_")) {
+					if (occupantId.startsWith("agent_")) {
 						const neighbor = this.agents.get(occupantId);
 						if (neighbor) {
 							totalNeighbors++;
@@ -236,10 +264,50 @@ var SimulationEngine = class {
 		return totalUtility + epsilon;
 	}
 	updateAllUtilities() {
-		for (const [id, agent] of this.agents) {
-			const newScore = this.calculateUtilityScore(agent.color, agent.x, agent.y);
-			agent.utility = newScore;
-			agent.isHappy = newScore >= this.similarityThreshold;
+		const venueScores = /* @__PURE__ */ new Map();
+		for (const venue of this.venues.values()) {
+			let sameColor = 0;
+			let totalInRadius = 0;
+			for (const agent of this.agents.values()) if (Math.sqrt(Math.pow(agent.x - venue.x, 2) + Math.pow(agent.y - venue.y, 2)) <= this.VENUE_RADIUS) {
+				totalInRadius++;
+				if (agent.color === venue.color) sameColor++;
+			}
+			const score = totalInRadius > 0 ? sameColor / totalInRadius : 0;
+			venueScores.set(venue.id, score);
+		}
+		for (const agent of this.agents.values()) {
+			let sameNeighbors = 0;
+			let totalNeighbors = 0;
+			for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+				if (dx === 0 && dy === 0) continue;
+				const nx = agent.x + dx;
+				const ny = agent.y + dy;
+				if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+					const neighborId = this.grid[ny][nx];
+					if (neighborId) {
+						const neighbor = this.agents.get(neighborId);
+						if (neighbor) {
+							totalNeighbors++;
+							if (neighbor.color === agent.color) sameNeighbors++;
+						}
+					}
+				}
+			}
+			const uNeighborhood = totalNeighbors > 0 ? sameNeighbors / totalNeighbors : 1;
+			let closestVenueId = null;
+			let minDistance = Infinity;
+			for (const venue of this.venues.values()) if (venue.color === agent.color) {
+				const dist = Math.sqrt(Math.pow(agent.x - venue.x, 2) + Math.pow(agent.y - venue.y, 2));
+				if (dist < minDistance) {
+					minDistance = dist;
+					closestVenueId = venue.id;
+				}
+			}
+			agent.currentVenueId = minDistance <= this.VENUE_RADIUS ? closestVenueId : null;
+			const uVenue = agent.currentVenueId ? venueScores.get(agent.currentVenueId) || 0 : 0;
+			if (this.venues.size === 0) agent.utility = uNeighborhood;
+			else agent.utility = .5 * uNeighborhood + .5 * uVenue;
+			agent.isHappy = agent.utility >= this.similarityThreshold;
 		}
 	}
 	previewLocalReactions(draggedColor, draggedId, hoverX, hoverY) {
@@ -253,7 +321,7 @@ var SimulationEngine = class {
 			const ny = hoverY + dy;
 			if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
 				const neighborId = this.grid[ny][nx];
-				if (neighborId && neighborId.startsWith("a_") && neighborId !== draggedId) {
+				if (neighborId && neighborId.startsWith("agent_") && neighborId !== draggedId) {
 					const neighbor = this.agents.get(neighborId);
 					if (neighbor) {
 						const originalOccupant = this.grid[hoverY][hoverX];
@@ -287,19 +355,38 @@ var SimulationEngine = class {
 	placeVenue(id, preferredX, preferredY, color) {
 		const existingVenue = this.venues.get(id);
 		if (existingVenue) this.grid[existingVenue.y][existingVenue.x] = null;
-		const targetCell = this.findNearestEmptyCell(preferredX, preferredY);
-		if (!targetCell) {
+		if (!this.isWithinBounds(preferredX, preferredY)) {
 			if (existingVenue) this.grid[existingVenue.y][existingVenue.x] = existingVenue.id;
 			return null;
 		}
+		const targetOccupant = this.grid[preferredY][preferredX];
+		if (targetOccupant && targetOccupant.startsWith("agent_")) {
+			const displacedAgent = this.agents.get(targetOccupant);
+			if (!displacedAgent) {
+				if (existingVenue) this.grid[existingVenue.y][existingVenue.x] = existingVenue.id;
+				return null;
+			}
+			const relocation = this.findRandomEmptyCell(preferredX, preferredY);
+			if (!relocation) {
+				if (existingVenue) this.grid[existingVenue.y][existingVenue.x] = existingVenue.id;
+				return null;
+			}
+			this.grid[displacedAgent.y][displacedAgent.x] = null;
+			displacedAgent.x = relocation.x;
+			displacedAgent.y = relocation.y;
+			this.grid[relocation.y][relocation.x] = displacedAgent.id;
+		} else if (targetOccupant && targetOccupant.startsWith("v_")) {
+			this.venues.delete(targetOccupant);
+			this.grid[preferredY][preferredX] = null;
+		} else if (targetOccupant !== null) this.grid[preferredY][preferredX] = null;
 		const venue = {
 			id,
-			x: targetCell.x,
-			y: targetCell.y,
+			x: preferredX,
+			y: preferredY,
 			color
 		};
 		this.venues.set(id, venue);
-		this.grid[targetCell.y][targetCell.x] = id;
+		this.grid[preferredY][preferredX] = id;
 		return venue;
 	}
 	previewVenueReactions(venueId, hoverX, hoverY) {
@@ -307,10 +394,26 @@ var SimulationEngine = class {
 		if (!venue) return [];
 		if (!this.isWithinBounds(hoverX, hoverY)) return [];
 		const targetOccupant = this.grid[hoverY][hoverX];
-		if (targetOccupant !== null && targetOccupant !== venueId) return [];
+		if (targetOccupant !== null && targetOccupant !== venueId && !targetOccupant.startsWith("agent_")) return [];
 		const originalX = venue.x;
 		const originalY = venue.y;
 		const originalTargetOccupant = this.grid[hoverY][hoverX];
+		let displacedAgent = null;
+		let relocation = null;
+		let displacedAgentOriginalX = -1;
+		let displacedAgentOriginalY = -1;
+		if (targetOccupant && targetOccupant.startsWith("agent_")) {
+			displacedAgent = this.agents.get(targetOccupant) ?? null;
+			if (!displacedAgent) return [];
+			displacedAgentOriginalX = displacedAgent.x;
+			displacedAgentOriginalY = displacedAgent.y;
+			relocation = this.findRandomEmptyCell(hoverX, hoverY);
+			if (!relocation) return [];
+			this.grid[displacedAgent.y][displacedAgent.x] = null;
+			displacedAgent.x = relocation.x;
+			displacedAgent.y = relocation.y;
+			this.grid[relocation.y][relocation.x] = displacedAgent.id;
+		}
 		this.grid[originalY][originalX] = null;
 		this.grid[hoverY][hoverX] = venueId;
 		venue.x = hoverX;
@@ -328,6 +431,12 @@ var SimulationEngine = class {
 		this.grid[originalY][originalX] = venueId;
 		venue.x = originalX;
 		venue.y = originalY;
+		if (displacedAgent && relocation) {
+			this.grid[relocation.y][relocation.x] = null;
+			displacedAgent.x = displacedAgentOriginalX;
+			displacedAgent.y = displacedAgentOriginalY;
+			this.grid[displacedAgentOriginalY][displacedAgentOriginalX] = displacedAgent.id;
+		}
 		return reactions;
 	}
 	moveVenue(id, targetX, targetY) {
@@ -337,7 +446,7 @@ var SimulationEngine = class {
 		if (venue.x === targetX && venue.y === targetY) return true;
 		const targetOccupant = this.grid[targetY][targetX];
 		if (targetOccupant !== null && targetOccupant !== id) {
-			if (!targetOccupant.startsWith("a_")) return false;
+			if (!targetOccupant.startsWith("agent_")) return false;
 			const displacedAgent = this.agents.get(targetOccupant);
 			if (!displacedAgent) return false;
 			this.grid[venue.y][venue.x] = null;
@@ -453,6 +562,16 @@ var SimulationEngine = class {
 				this.placeVenue(vId, t.x, t.y, color);
 			});
 		});
+		for (const agent of this.agents.values()) {
+			const venueAtCell = Array.from(this.venues.values()).find((venue) => venue.x === agent.x && venue.y === agent.y);
+			if (!venueAtCell) continue;
+			const relocation = this.findRandomEmptyCell(agent.x, agent.y);
+			if (!relocation) continue;
+			this.grid[agent.y][agent.x] = venueAtCell.id;
+			agent.x = relocation.x;
+			agent.y = relocation.y;
+			this.grid[relocation.y][relocation.x] = agent.id;
+		}
 		this.updateAllUtilities();
 	}
 	getMetrics() {
@@ -462,25 +581,32 @@ var SimulationEngine = class {
 //#endregion
 //#region src/stores/simulationStore.ts
 var engine = new SimulationEngine({
-	width: 15,
-	height: 15,
+	width: 12,
+	height: 12,
 	density: .8,
 	similarityThreshold: .5,
 	venueBoost: .2
 });
-engine.init();
+engine.initEmptyGrid();
 var agentsStore = writable(Array.from(engine.agents.values()));
 var venuesStore = writable(Array.from(engine.venues.values()));
 writable(engine.tickCount);
 var metricsHistoryStore = writable([engine.getMetrics()]);
 var ghostReactionsStore = writable([]);
+var hoveredVenueId = writable(null);
+var isGeneratingVenuesStore = writable(false);
 var isPlayingStore = writable(false);
 //#endregion
 //#region src/components/narrative/Storyboard.svelte
 function Storyboard($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		$$renderer.push(`<div class="storyboard"><h2>${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).title)}</h2> <p class="content">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).content)}</p> <div class="actions svelte-1q3wass"><button class="btn-primary">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).actionLabel)}</button> <button class="btn-secondary svelte-1q3wass">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Continue")}</button></div></div>`);
+		$$renderer.push(`<div class="storyboard"><h2>${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).title)}</h2> <p class="content">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).content)}</p> <div class="actions"><button class="btn-primary"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}>`);
+		if (store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore)) {
+			$$renderer.push("<!--[0-->");
+			$$renderer.push(`<span class="spinner" aria-hidden="true"></span>`);
+		} else $$renderer.push("<!--[-1-->");
+		$$renderer.push(`<!--]--> ${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).actionLabel)}</button></div></div>`);
 		if ($$store_subs) unsubscribe_stores($$store_subs);
 	});
 }
@@ -506,8 +632,8 @@ function LiveCharts($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
 		let metricsHistory, latestMetric;
-		const width = 300;
-		const height = 200;
+		const width = 320;
+		const height = 190;
 		const margin = {
 			top: 20,
 			right: 20,
@@ -530,6 +656,7 @@ function LiveCharts($$renderer, $$props) {
 				title: "Clustering Index"
 			}
 		];
+		let hoveredMetric = null;
 		function createXScale(history) {
 			return d3.scaleLinear().domain([0, d3.max(history, (metric) => metric.tick) || 10]).range([0, innerWidth]);
 		}
@@ -547,31 +674,40 @@ function LiveCharts($$renderer, $$props) {
 		}
 		$: metricsHistory = store_get($$store_subs ??= {}, "$metricsHistoryStore", metricsHistoryStore);
 		$: latestMetric = metricsHistory.at(-1);
-		$$renderer.push(`<div class="charts-stack svelte-5aitah"><!--[-->`);
+		$$renderer.push(`<div class="charts-stack"><!--[-->`);
 		const each_array = ensure_array_like(metricConfigs);
 		for (let $$index_1 = 0, $$length = each_array.length; $$index_1 < $$length; $$index_1++) {
 			let metricConfig = each_array[$$index_1];
 			const xScale = createXScale(metricsHistory);
 			const yScale = createYScale(metricsHistory, metricConfig.key);
 			const pathData = createPathData(metricsHistory, metricConfig.key);
-			$$renderer.push(`<div class="chart-container svelte-5aitah"><h3 class="svelte-5aitah">${escape_html(metricConfig.title)}</h3> <p class="chart-value svelte-5aitah">`);
-			if (latestMetric) {
+			$$renderer.push(`<div class="chart-container"><h3>${escape_html(metricConfig.title)}</h3> <p class="chart-value">`);
+			if (void 0 === metricConfig.key) {
 				$$renderer.push("<!--[0-->");
+				$$renderer.push(`Tick ${escape_html(hoveredMetric.metric.tick)}: ${escape_html(getMetricValue(hoveredMetric.metric, metricConfig.key).toFixed(3))}`);
+			} else if (latestMetric) {
+				$$renderer.push("<!--[1-->");
 				$$renderer.push(`Tick ${escape_html(latestMetric.tick)}: ${escape_html(getMetricValue(latestMetric, metricConfig.key).toFixed(3))}`);
 			} else {
 				$$renderer.push("<!--[-1-->");
 				$$renderer.push(`Waiting for simulation data...`);
 			}
-			$$renderer.push(`<!--]--></p> <svg${attr("width", width)}${attr("height", height)}><g${attr("transform", `translate(${margin.left},${margin.top})`)}><!--[-->`);
+			$$renderer.push(`<!--]--></p> <svg${attr("viewBox", `0 0 ${width} ${height}`)} preserveAspectRatio="none" role="img"${attr("aria-label", `Interactive chart for ${metricConfig.title}`)}><g${attr("transform", `translate(${margin.left},${margin.top})`)}><!--[-->`);
 			const each_array_1 = ensure_array_like(yScale.ticks(4));
 			for (let $$index = 0, $$length = each_array_1.length; $$index < $$length; $$index++) {
 				let tick = each_array_1[$$index];
 				$$renderer.push(`<line x1="0"${attr("x2", innerWidth)}${attr("y1", yScale(tick))}${attr("y2", yScale(tick))} stroke="#eee"></line><text x="-5"${attr("y", yScale(tick) + 4)} text-anchor="end" font-size="10" fill="#888">${escape_html(tick.toFixed(2))}</text>`);
 			}
-			$$renderer.push(`<!--]--><path${attr("d", pathData)} fill="none"${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-width="3" stroke-linejoin="round" stroke-linecap="round" class="svelte-5aitah"></path>`);
+			$$renderer.push(`<!--]--><path${attr("d", pathData)} fill="none"${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-width="3" stroke-linejoin="round" stroke-linecap="round"></path>`);
 			if (latestMetric) {
 				$$renderer.push("<!--[0-->");
 				$$renderer.push(`<circle${attr("cx", xScale(latestMetric.tick))}${attr("cy", yScale(getMetricValue(latestMetric, metricConfig.key)))} r="4"${attr("fill", chartMetricsColorScale(metricConfig.key))}></circle>`);
+			} else $$renderer.push("<!--[-1-->");
+			$$renderer.push(`<!--]-->`);
+			if (void 0 === metricConfig.key) {
+				$$renderer.push("<!--[0-->");
+				const hoveredValue = getMetricValue(hoveredMetric.metric, metricConfig.key);
+				$$renderer.push(`<line${attr("x1", xScale(hoveredMetric.metric.tick))}${attr("x2", xScale(hoveredMetric.metric.tick))} y1="0"${attr("y2", innerHeight)}${attr("stroke", chartMetricsColorScale(metricConfig.key))} stroke-dasharray="4 4" stroke-width="1.5" opacity="0.45"></line><circle${attr("cx", xScale(hoveredMetric.metric.tick))}${attr("cy", yScale(hoveredValue))} r="5"${attr("fill", chartMetricsColorScale(metricConfig.key))} stroke="white" stroke-width="2"></circle>`);
 			} else $$renderer.push("<!--[-1-->");
 			$$renderer.push(`<!--]--></g></svg></div>`);
 		}
@@ -592,20 +728,37 @@ function Sidebar($$renderer) {
 //#region src/components/grid/AgentVisual.svelte
 function AgentVisual($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
-		let isHappy, tx, ty;
+		var $$store_subs;
+		let isHappy, tx, ty, isWiggling, utilityWidth, barX;
 		let agent = $$props["agent"];
 		let cellSize = $$props["cellSize"];
+		let boardWidth = $$props["boardWidth"];
+		let boardHeight = $$props["boardHeight"];
 		let ghostReaction = fallback($$props["ghostReaction"], void 0);
 		let isDraggable = fallback($$props["isDraggable"], false);
+		let showProtagonistBadge = fallback($$props["showProtagonistBadge"], false);
+		const barMaxWidth = cellSize * .7;
 		$: isHappy = ghostReaction ? ghostReaction.hypotheticalHappiness : agent.isHappy;
 		$: tx = agent.x * cellSize + cellSize / 2;
 		$: ty = agent.y * cellSize + cellSize / 2;
-		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("agent svelte-1d5dd7y", void 0, { "draggable": isDraggable })}><circle cx="0" cy="0"${attr("r", cellSize * .35)}${attr("fill", agent.color)}${attr("stroke", isHappy ? "#1f2937" : "#facc15")} stroke-width="0"${attr("stroke-dasharray", isHappy ? "none" : "4,4")}></circle><text x="0" y="-2" text-anchor="middle" dominant-baseline="central"${attr("font-size", `${stringify(cellSize * .5)}px`)} class="emoji svelte-1d5dd7y">${escape_html(isHappy ? "😀" : "😞")}</text></g>`);
+		$: isWiggling = store_get($$store_subs ??= {}, "$hoveredVenueId", hoveredVenueId) !== null && store_get($$store_subs ??= {}, "$hoveredVenueId", hoveredVenueId) === agent.currentVenueId;
+		$: utilityWidth = agent.utility * barMaxWidth;
+		$: barX = -(barMaxWidth / 2);
+		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("agent", void 0, { "draggable": isDraggable })}><g${attr_class("agent-body", void 0, { "wiggle": isWiggling })}><g class="utility-bar-group"><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", barMaxWidth)} height="5" fill="#e0e0e0" rx="2.5"></rect><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", utilityWidth)} height="5"${attr("fill", agent.color)} rx="2.5"></rect></g><circle cx="0" cy="0"${attr("r", cellSize * .35)}${attr("fill", agent.color)}${attr("stroke", isHappy ? "#111" : "#fff")}${attr("stroke-width", isHappy ? 0 : 2)}${attr("stroke-dasharray", isHappy ? "none" : "4 2")}></circle><text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none" class="emoji">${escape_html(isHappy ? "🙂" : "☹️")}</text>`);
+		if (showProtagonistBadge) {
+			$$renderer.push("<!--[0-->");
+			$$renderer.push(`<text x="0" y="-16" text-anchor="middle" font-size="16" pointer-events="none" class="emoji">⭐</text>`);
+		} else $$renderer.push("<!--[-1-->");
+		$$renderer.push(`<!--]--></g></g>`);
+		if ($$store_subs) unsubscribe_stores($$store_subs);
 		bind_props($$props, {
 			agent,
 			cellSize,
+			boardWidth,
+			boardHeight,
 			ghostReaction,
-			isDraggable
+			isDraggable,
+			showProtagonistBadge
 		});
 	});
 }
@@ -613,17 +766,27 @@ function AgentVisual($$renderer, $$props) {
 //#region src/components/grid/VenueVisual.svelte
 function VenueVisual($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
-		let tx, ty;
+		var $$store_subs;
+		let tx, ty, isHovered;
 		let venue = $$props["venue"];
 		let cellSize = $$props["cellSize"];
+		let boardWidth = $$props["boardWidth"];
+		let boardHeight = $$props["boardHeight"];
 		let isDraggable = fallback($$props["isDraggable"], false);
 		const size = cellSize - 16;
 		$: tx = venue.x * cellSize + 8;
 		$: ty = venue.y * cellSize + 8;
-		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("venue svelte-g1fk94", void 0, { "draggable": isDraggable })}><rect x="0" y="0"${attr("width", size)}${attr("height", size)}${attr("fill", venue.color)} rx="8" opacity="0.8" stroke="#1f2937" stroke-width="0"></rect><text${attr("x", size / 2)}${attr("y", size / 2 + 2)} text-anchor="middle" dominant-baseline="central"${attr("font-size", `${stringify(size * .8)}px`)} class="emoji svelte-g1fk94">🏛️</text></g>`);
+		$: isHovered = store_get($$store_subs ??= {}, "$hoveredVenueId", hoveredVenueId) === venue.id;
+		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("venue", void 0, {
+			"draggable": isDraggable,
+			"hovered": isHovered
+		})} role="button" tabindex="0"${attr("aria-label", `Venue ${stringify(venue.id)}`)}><rect x="0" y="0"${attr("width", size)}${attr("height", size)}${attr("fill", venue.color)} rx="8" opacity="0.8" stroke="#1f2937" stroke-width="0"></rect><text${attr("x", size / 2)}${attr("y", size / 2 + 2)} text-anchor="middle" dominant-baseline="central"${attr("font-size", `${stringify(size * .8)}px`)} class="emoji">🏛️</text></g>`);
+		if ($$store_subs) unsubscribe_stores($$store_subs);
 		bind_props($$props, {
 			venue,
 			cellSize,
+			boardWidth,
+			boardHeight,
 			isDraggable
 		});
 	});
@@ -637,8 +800,8 @@ function GridWorld($$renderer, $$props) {
 		let agentsStore = $$props["agentsStore"];
 		let venuesStore = $$props["venuesStore"];
 		let ghostReactionsStore = $$props["ghostReactionsStore"];
-		const width = 10;
-		const height = 10;
+		const width = 12;
+		const height = 12;
 		const cellSize = 60;
 		const bgCells = [];
 		for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) bgCells.push({
@@ -647,7 +810,7 @@ function GridWorld($$renderer, $$props) {
 		});
 		$: svgWidth = width * cellSize;
 		$: svgHeight = height * cellSize;
-		$$renderer.push(`<svg${attr("width", svgWidth)}${attr("height", svgHeight)} class="board"><g class="layer-grid"><!--[-->`);
+		$$renderer.push(`<svg${attr("viewBox", `0 0 ${svgWidth} ${svgHeight}`)} preserveAspectRatio="xMidYMid meet" class="board"><g class="layer-grid"><!--[-->`);
 		const each_array = ensure_array_like(bgCells);
 		for (let $$index = 0, $$length = each_array.length; $$index < $$length; $$index++) {
 			let cell = each_array[$$index];
@@ -660,7 +823,9 @@ function GridWorld($$renderer, $$props) {
 			VenueVisual($$renderer, {
 				venue,
 				cellSize,
-				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 4
+				boardWidth: width,
+				boardHeight: height,
+				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 4
 			});
 		}
 		$$renderer.push(`<!--]--></g><g class="layer-agents"><!--[-->`);
@@ -670,8 +835,11 @@ function GridWorld($$renderer, $$props) {
 			AgentVisual($$renderer, {
 				agent,
 				cellSize,
+				boardWidth: width,
+				boardHeight: height,
 				ghostReaction: store_get($$store_subs ??= {}, "$ghostReactionsStore", ghostReactionsStore).find((r) => r.id === agent.id),
-				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 0
+				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 2,
+				showProtagonistBadge: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 1 && agent.id === "agent_protagonist"
 			});
 		}
 		$$renderer.push(`<!--]--></g></svg>`);
@@ -685,16 +853,20 @@ function GridWorld($$renderer, $$props) {
 }
 //#endregion
 //#region src/routes/+page.svelte
-function _page($$renderer) {
-	$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><h1>Segregation Dynamics: An Agent-Based Model</h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></header> <div class="exhibit-content"><section class="simulation-canvas"><div class="grid-wrapper">`);
-	GridWorld($$renderer, {
-		agentsStore,
-		venuesStore,
-		ghostReactionsStore
+function _page($$renderer, $$props) {
+	$$renderer.component(($$renderer) => {
+		var $$store_subs;
+		$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><h1>Segregation Dynamics: An Agent-Based Model</h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></header> <div class="exhibit-content"><section class="simulation-canvas"><div class="simulation-controls"><button class="simulation-toggle"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}${attr("aria-label", store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause simulation" : "Play simulation")}><span class="control-icon" aria-hidden="true">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "❚❚" : "▶")}</span> <span>${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Play")} simulation</span></button></div> <div class="grid-wrapper">`);
+		GridWorld($$renderer, {
+			agentsStore,
+			venuesStore,
+			ghostReactionsStore
+		});
+		$$renderer.push(`<!----></div></section> `);
+		Sidebar($$renderer, {});
+		$$renderer.push(`<!----></div></main>`);
+		if ($$store_subs) unsubscribe_stores($$store_subs);
 	});
-	$$renderer.push(`<!----></div></section> `);
-	Sidebar($$renderer, {});
-	$$renderer.push(`<!----></div></main>`);
 }
 //#endregion
 export { _page as default };

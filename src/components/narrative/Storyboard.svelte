@@ -1,17 +1,17 @@
 <script lang="ts">
   import { currentChapter, currentChapterIndex, narrativeActions } from '../../stores/narrativeStore';
-  import { isPlayingStore, simulationActions } from '../../stores/simulationStore';
+  import { isGeneratingVenuesStore, simulationActions } from '../../stores/simulationStore';
 
   const finalChapterIndex = 6; // Updated to match new chapter length
 
-  function nextPhase() {
+  async function nextPhase() {
     // 1. Fire the specific action if the chapter demands it
     if ($currentChapter.dispatchAction === 'SPAWN_PROTAGONIST') {
       simulationActions.spawnProtagonist();
     } else if ($currentChapter.dispatchAction === 'SPAWN_POPULATION') {
       simulationActions.spawnPopulation();
     } else if ($currentChapter.dispatchAction === 'GENERATE_VENUES') {
-      simulationActions.generateEmergentVenues();
+      await simulationActions.generateEmergentVenues();
     } else if ($currentChapter.dispatchAction === 'PLAY_SIMULATION') {
       simulationActions.play();
     }
@@ -21,14 +21,6 @@
       narrativeActions.next();
     }
   }
-
-  function toggleSimulation() {
-    if ($isPlayingStore) {
-      simulationActions.stop();
-      return;
-    }
-    simulationActions.play();
-  }
 </script>
 
 <div class="storyboard">
@@ -36,13 +28,11 @@
   <p class="content">{$currentChapter.content}</p>
   
   <div class="actions">
-    <button class="btn-primary" on:click={nextPhase}>
+    <button class="btn-primary" on:click={nextPhase} disabled={$isGeneratingVenuesStore}>
+      {#if $isGeneratingVenuesStore}
+        <span class="spinner" aria-hidden="true"></span>
+      {/if}
       {$currentChapter.actionLabel}
     </button>
-    {#if $currentChapter.dispatchAction === 'PLAY_SIMULATION' || $currentChapterIndex > 1}
-      <button class="btn-secondary" on:click={toggleSimulation}>
-        {$isPlayingStore ? 'Pause Simulation' : 'Run Simulation'}
-      </button>
-    {/if}
   </div>
 </div>

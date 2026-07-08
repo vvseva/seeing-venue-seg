@@ -1,11 +1,13 @@
+import { tick } from 'svelte';
 import { writable, get } from 'svelte/store';
 import { SimulationEngine } from '../engine/SimulationEngine';
+import { WORLD_HEIGHT, WORLD_WIDTH } from '../engine/world';
 import type { Agent, Venue, ReactionPreview, SegregationMetrics } from '../engine/types/models';
 
 // 1. Initialize the headless engine
 export const engine = new SimulationEngine({
-  width: 15,
-  height: 15,
+  width: WORLD_WIDTH,
+  height: WORLD_HEIGHT,
   density: 0.8,
   similarityThreshold: 0.5,
   venueBoost: 0.2
@@ -23,6 +25,7 @@ export const metricsHistoryStore = writable<SegregationMetrics[]>([engine.getMet
 // Temporary state for the "Exploration" drag-and-drop feature
 export const ghostReactionsStore = writable<ReactionPreview[]>([]);
 export const hoveredVenueId = writable<string | null>(null);
+export const isGeneratingVenuesStore = writable<boolean>(false);
 
 // Internal loop reference for playing/pausing
 let animationFrameId: number;
@@ -164,15 +167,29 @@ export const simulationActions = {
    * You can expand the SimulationEngine class to handle this internally, 
    * but triggering it from here syncs the UI immediately.
    */
-  generateEmergentVenues() {
-    // Call the Voronoi Relaxation algorithm.
-    // In a 10x10 grid with 80% density, there are ~40 agents of each color.
-    // A capacity of 20 means the math will automatically generate 2 venues per color (4 total) 
-    // and push them apart so they perfectly cover the map.
-    engine.generateVenuesLloyds(20);
-    
-    // Sync the Svelte UI to visually draw the new venues
-    syncStores();
+  async generateEmergentVenues() {
+    if (get(isGeneratingVenuesStore)) return;
+
+    isGeneratingVenuesStore.set(true);
+    this.stop();
+
+    await tick();
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+
+    try {
+      // Call the Voronoi Relaxation algorithm.
+      // In a 10x10 grid with 80% density, there are ~40 agents of each color.
+      // A capacity of 20 means the math will automatically generate 2 venues per color (4 total)
+      // and push them apart so they perfectly cover the map.
+      engine.generateVenuesLloyds(20);
+
+      syncStores();
+      recordCurrentMetrics();
+    } finally {
+      isGeneratingVenuesStore.set(false);
+    }
   },
 
   previewVenueMove(id: string, targetX: number, targetY: number) {

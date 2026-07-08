@@ -5,8 +5,11 @@
   
   export let agent: Agent;
   export let cellSize: number;
+  export let boardWidth: number;
+  export let boardHeight: number;
   export let ghostReaction: { hypotheticalHappiness: boolean } | undefined = undefined;
   export let isDraggable: boolean = false;
+  export let showProtagonistBadge: boolean = false;
 
   // Visuals react to either the engine state or the temporary ghost interaction
   $: isHappy = ghostReaction ? ghostReaction.hypotheticalHappiness : agent.isHappy;
@@ -36,16 +39,16 @@
         d3.select(node).attr("transform", `translate(${event.x},${event.y})`);
 
         // Clamping ensures calculations don't break if dragged outside the SVG
-        const hoverX = Math.max(0, Math.min(9, Math.floor(event.x / cellSize)));
-        const hoverY = Math.max(0, Math.min(9, Math.floor(event.y / cellSize)));
+        const hoverX = Math.max(0, Math.min(boardWidth - 1, Math.floor(event.x / cellSize)));
+        const hoverY = Math.max(0, Math.min(boardHeight - 1, Math.floor(event.y / cellSize)));
 
         simulationActions.previewMove(agent.color, agent.id, hoverX, hoverY);
       })
       .on("end", (event) => {
         d3.select(node).classed("dragging", false);
         
-        const targetX = Math.max(0, Math.min(9, Math.floor(event.x / cellSize)));
-        const targetY = Math.max(0, Math.min(9, Math.floor(event.y / cellSize)));
+        const targetX = Math.max(0, Math.min(boardWidth - 1, Math.floor(event.x / cellSize)));
+        const targetY = Math.max(0, Math.min(boardHeight - 1, Math.floor(event.y / cellSize)));
 
         const success = simulationActions.commitMove(agent.id, targetX, targetY);
 
@@ -70,25 +73,31 @@
 <g
   use:draggable
   transform="translate({tx},{ty})"
-  class="agent {isWiggling ? 'wiggle' : ''}"
+  class="agent"
   class:draggable={isDraggable}
 >
-  <g class="utility-bar-group">
-    <rect x={barX} y={-cellSize * 0.45} width={barMaxWidth} height="5" fill="#e0e0e0" rx="2.5" />
-    <rect x={barX} y={-cellSize * 0.45} width={utilityWidth} height="5" fill={agent.color} rx="2.5" />
+  <g class="agent-body" class:wiggle={isWiggling}>
+    <g class="utility-bar-group">
+      <rect x={barX} y={-cellSize * 0.45} width={barMaxWidth} height="5" fill="#e0e0e0" rx="2.5" />
+      <rect x={barX} y={-cellSize * 0.45} width={utilityWidth} height="5" fill={agent.color} rx="2.5" />
+    </g>
+
+    <circle
+      cx="0"
+      cy="0"
+      r={cellSize * 0.35}
+      fill={agent.color}
+      stroke={isHappy ? "#111" : "#fff"}
+      stroke-width={isHappy ? 0 : 2}
+      stroke-dasharray={isHappy ? "none" : "4 2"}
+    />
+
+    <text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none" class="emoji">
+      {isHappy ? '🙂' : '☹️'}
+    </text>
+
+    {#if showProtagonistBadge}
+      <text x="0" y="-16" text-anchor="middle" font-size="16" pointer-events="none" class="emoji">⭐</text>
+    {/if}
   </g>
-
-  <circle
-    cx="0"
-    cy="0"
-    r={cellSize * 0.35}
-    fill={agent.color}
-    stroke={isHappy ? "#111" : "#fff"}
-    stroke-width={isHappy ? 0 : 2}
-    stroke-dasharray={isHappy ? "none" : "4 2"}
-  />
-
-  {#if agent.isProtagonist}
-    <text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none">🥳</text>
-  {/if}
 </g>

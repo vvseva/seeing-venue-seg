@@ -4,6 +4,7 @@
   import type { Agent, ReactionPreview, Venue } from '../../engine/types/models';
   import type { Writable } from 'svelte/store';
   import { currentChapterIndex } from '../../stores/narrativeStore'; 
+  import { WORLD_HEIGHT, WORLD_WIDTH } from '../../engine/world';
   
   type GridCell = {
     x: number;
@@ -14,8 +15,8 @@
   export let venuesStore: Writable<Venue[]>;
   export let ghostReactionsStore: Writable<ReactionPreview[]>;
 
-  const width = 15;
-  const height = 15;
+  const width = WORLD_WIDTH;
+  const height = WORLD_HEIGHT;
   const cellSize = 60; // Pixels per grid cell
   
   $: svgWidth = width * cellSize;
@@ -30,7 +31,11 @@
   }
 </script>
 
-<svg width={svgWidth} height={svgHeight} class="board">
+<svg
+  viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+  preserveAspectRatio="xMidYMid meet"
+  class="board"
+>
   <g class="layer-grid">
     {#each bgCells as cell}
       <rect x={cell.x * cellSize} y={cell.y * cellSize} width={cellSize} height={cellSize} class="grid-cell" />
@@ -42,6 +47,8 @@
       <VenueVisual 
         {venue} 
         {cellSize} 
+        boardWidth={width}
+        boardHeight={height}
         isDraggable={$currentChapterIndex >= 4}
       />
     {/each}
@@ -52,8 +59,11 @@
       <AgentVisual 
         {agent} 
         {cellSize} 
+        boardWidth={width}
+        boardHeight={height}
         ghostReaction={$ghostReactionsStore.find(r => r.id === agent.id)}
-        isDraggable={$currentChapterIndex <= 1 ? agent.isProtagonist : $currentChapterIndex > 1}
+        isDraggable={$currentChapterIndex <= 2}
+        showProtagonistBadge={$currentChapterIndex <= 1 && agent.id === 'agent_protagonist'}
       />
     {/each}
   </g>

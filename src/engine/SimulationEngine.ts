@@ -8,6 +8,7 @@ import type {
 } from './types/models';
 
 import { calculateMetrics } from './math/masseyDentonMetrics';
+import { WORLD_HEIGHT, WORLD_WIDTH } from './world';
 
 export class SimulationEngine {
   public width: number;
@@ -26,8 +27,8 @@ export class SimulationEngine {
   public tickCount: number;
 
   constructor(config: SimulationConfig = {}) {
-    this.width = config.width ?? 15;
-    this.height = config.height ?? 15;
+    this.width = config.width ?? WORLD_WIDTH;
+    this.height = config.height ?? WORLD_HEIGHT;
     this.density = config.density ?? 0.7;
     this.similarityThreshold = config.similarityThreshold ?? 0.5;
     this.venueBoost = config.venueBoost ?? 0.2;
@@ -61,7 +62,6 @@ export class SimulationEngine {
       color,
       isHappy: true,
       utility: 1,
-      isProtagonist: true,
       currentVenueId: null
     });
 
@@ -92,7 +92,6 @@ export class SimulationEngine {
           color,
           isHappy: false, 
           utility: 0,
-          isProtagonist: false,
           currentVenueId: null
         });
         this.grid[y][x] = id;
@@ -204,7 +203,7 @@ export class SimulationEngine {
           const occupantId = this.grid[ny][nx];
           
           if (occupantId && occupantId !== ignoreId) {
-            if (occupantId.startsWith('a_')) {
+            if (occupantId.startsWith('agent_')) {
               const neighbor = this.agents.get(occupantId);
               if (neighbor) {
                 totalNeighbors++;
@@ -275,9 +274,11 @@ export class SimulationEngine {
           if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
             const neighborId = this.grid[ny][nx];
             if (neighborId) {
-              totalNeighbors++;
-              const neighbor = this.agents.get(neighborId)!;
-              if (neighbor.color === agent.color) sameNeighbors++;
+              const neighbor = this.agents.get(neighborId);
+              if (neighbor) {
+                totalNeighbors++;
+                if (neighbor.color === agent.color) sameNeighbors++;
+              }
             }
           }
         }
@@ -339,7 +340,7 @@ export class SimulationEngine {
         if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
           const neighborId = this.grid[ny][nx];
           
-          if (neighborId && neighborId.startsWith('a_') && neighborId !== draggedId) {
+          if (neighborId && neighborId.startsWith('agent_') && neighborId !== draggedId) {
             const neighbor = this.agents.get(neighborId);
             
             if (neighbor) {
@@ -388,23 +389,52 @@ export class SimulationEngine {
       this.grid[existingVenue.y][existingVenue.x] = null;
     }
 
-    const targetCell = this.findNearestEmptyCell(preferredX, preferredY);
-    if (!targetCell) {
+    if (!this.isWithinBounds(preferredX, preferredY)) {
       if (existingVenue) {
         this.grid[existingVenue.y][existingVenue.x] = existingVenue.id;
       }
       return null;
     }
 
+    const targetOccupant = this.grid[preferredY][preferredX];
+
+    if (targetOccupant && targetOccupant.startsWith('agent_')) {
+      const displacedAgent = this.agents.get(targetOccupant);
+      if (!displacedAgent) {
+        if (existingVenue) {
+          this.grid[existingVenue.y][existingVenue.x] = existingVenue.id;
+        }
+        return null;
+      }
+
+      const relocation = this.findRandomEmptyCell(preferredX, preferredY);
+      if (!relocation) {
+        if (existingVenue) {
+          this.grid[existingVenue.y][existingVenue.x] = existingVenue.id;
+        }
+        return null;
+      }
+
+      this.grid[displacedAgent.y][displacedAgent.x] = null;
+      displacedAgent.x = relocation.x;
+      displacedAgent.y = relocation.y;
+      this.grid[relocation.y][relocation.x] = displacedAgent.id;
+    } else if (targetOccupant && targetOccupant.startsWith('v_')) {
+      this.venues.delete(targetOccupant);
+      this.grid[preferredY][preferredX] = null;
+    } else if (targetOccupant !== null) {
+      this.grid[preferredY][preferredX] = null;
+    }
+
     const venue: Venue = {
       id,
-      x: targetCell.x,
-      y: targetCell.y,
+      x: preferredX,
+      y: preferredY,
       color
     };
 
     this.venues.set(id, venue);
-    this.grid[targetCell.y][targetCell.x] = id;
+    this.grid[preferredY][preferredX] = id;
     return venue;
   }
 
@@ -414,11 +444,31 @@ export class SimulationEngine {
     if (!this.isWithinBounds(hoverX, hoverY)) return [];
 
     const targetOccupant = this.grid[hoverY][hoverX];
-    if (targetOccupant !== null && targetOccupant !== venueId) return [];
+    if (targetOccupant !== null && targetOccupant !== venueId && !targetOccupant.startsWith('agent_')) return [];
 
     const originalX = venue.x;
     const originalY = venue.y;
     const originalTargetOccupant = this.grid[hoverY][hoverX];
+    let displacedAgent: Agent | null = null;
+    let relocation: { x: number; y: number } | null = null;
+    let displacedAgentOriginalX = -1;
+    let displacedAgentOriginalY = -1;
+
+    if (targetOccupant && targetOccupant.startsWith('agent_')) {
+      displacedAgent = this.agents.get(targetOccupant) ?? null;
+      if (!displacedAgent) return [];
+
+      displacedAgentOriginalX = displacedAgent.x;
+      displacedAgentOriginalY = displacedAgent.y;
+
+      relocation = this.findRandomEmptyCell(hoverX, hoverY);
+      if (!relocation) return [];
+
+      this.grid[displacedAgent.y][displacedAgent.x] = null;
+      displacedAgent.x = relocation.x;
+      displacedAgent.y = relocation.y;
+      this.grid[relocation.y][relocation.x] = displacedAgent.id;
+    }
 
     this.grid[originalY][originalX] = null;
     this.grid[hoverY][hoverX] = venueId;
@@ -442,6 +492,13 @@ export class SimulationEngine {
     venue.x = originalX;
     venue.y = originalY;
 
+    if (displacedAgent && relocation) {
+      this.grid[relocation.y][relocation.x] = null;
+      displacedAgent.x = displacedAgentOriginalX;
+      displacedAgent.y = displacedAgentOriginalY;
+      this.grid[displacedAgentOriginalY][displacedAgentOriginalX] = displacedAgent.id;
+    }
+
     return reactions;
   }
 
@@ -453,7 +510,7 @@ export class SimulationEngine {
 
     const targetOccupant = this.grid[targetY][targetX];
     if (targetOccupant !== null && targetOccupant !== id) {
-      if (!targetOccupant.startsWith('a_')) return false;
+      if (!targetOccupant.startsWith('agent_')) return false;
 
       const displacedAgent = this.agents.get(targetOccupant);
       if (!displacedAgent) return false;
@@ -628,6 +685,26 @@ export class SimulationEngine {
         this.placeVenue(vId, t.x, t.y, color);
       });
     });
+
+    for (const agent of this.agents.values()) {
+      const venueAtCell = Array.from(this.venues.values()).find(
+        (venue) => venue.x === agent.x && venue.y === agent.y
+      );
+
+      if (!venueAtCell) {
+        continue;
+      }
+
+      const relocation = this.findRandomEmptyCell(agent.x, agent.y);
+      if (!relocation) {
+        continue;
+      }
+
+      this.grid[agent.y][agent.x] = venueAtCell.id;
+      agent.x = relocation.x;
+      agent.y = relocation.y;
+      this.grid[relocation.y][relocation.x] = agent.id;
+    }
 
     // Recalculate the entire board's happiness now that venues exist
     this.updateAllUtilities();

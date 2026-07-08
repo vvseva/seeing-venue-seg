@@ -2,13 +2,19 @@
    1. BASE & TYPOGRAPHY
    ========================================= */
 :root {
-  --primary-color: #007bff;
-  --primary-hover: #0056b3;
-  --bg-color: #f0f2f5;
+  box-sizing: border-box;
+  --primary-color: #0f766e;
+  --primary-hover: #115e59;
+  --bg-color: #eef2f2;
   --panel-bg: #ffffff;
   --text-main: #111827;
   --text-muted: #6b7280;
-  --border-color: #e5e7eb;
+  --border-color: #d6dbe1;
+  --shadow-soft: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+*, *::before, *::after {
+  box-sizing: inherit;
 }
 
 body, html {
@@ -16,8 +22,8 @@ body, html {
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background-color: var(--bg-color);
-  height: 100vh;
-  overflow: hidden; /* Prevents scrolling in kiosk/museum environment */
+  min-height: 100vh;
+  overflow: hidden;
 }
 
 h1 {
@@ -53,7 +59,7 @@ p {
   max-width: 1400px;
   margin: 0 auto;
   background-color: var(--panel-bg);
-  box-shadow: 0 0 20px rgba(0,0,0,0.05);
+  box-shadow: var(--shadow-soft);
 }
 
 .exhibit-header {
@@ -72,6 +78,7 @@ p {
   display: flex;
   flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* Sidebar Structure */
@@ -79,7 +86,8 @@ p {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  width: 350px;
+  width: min(350px, 38vw);
+  min-width: 300px;
   height: 100%;
   background: #f8f9fa;
   padding: 1.5rem;
@@ -92,7 +100,8 @@ p {
   background: var(--panel-bg);
   border-radius: 8px;
   padding: 1.5rem;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 16px rgba(15, 23, 42, 0.06);
+  min-width: 0;
 }
 
 .charts-panel {
@@ -139,13 +148,58 @@ p {
 .simulation-canvas {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.85rem;
   background-color: #f9fafb;
   padding: 2rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.simulation-controls {
+  display: flex;
+  justify-content: flex-end;
+  width: min(100%, 940px);
+}
+
+.simulation-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-main);
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.simulation-toggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.12);
+}
+
+.simulation-toggle:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.control-icon {
+  width: 1rem;
+  display: inline-flex;
+  justify-content: center;
 }
 
 .grid-wrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow: auto;
   background: white;
   padding: 1rem;
   border-radius: 12px;
@@ -157,6 +211,10 @@ p {
   background-color: #fff;
   touch-action: none; /* Prevents mobile page-refresh pull while dragging */
   border-radius: 8px;
+  display: block;
+  width: min(100%, 900px);
+  height: auto;
+  max-width: 100%;
 }
 
 .grid-cell {
@@ -173,37 +231,49 @@ p {
 }
 
 .venue {
-  transition: filter 0.2s;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s;
 }
 .venue.draggable {
   cursor: grab;
 }
-.venue.draggable:active, :global(.dragging) {
+.venue.hovered rect {
+  opacity: 0.38;
+}
+.venue.hovered {
+  filter: drop-shadow(0px 10px 16px rgba(15, 23, 42, 0.12));
+}
+.venue.draggable:active {
   cursor: grabbing;
   filter: drop-shadow(0px 8px 12px rgba(0,0,0,0.4));
 }
 
+.dragging {
+  cursor: grabbing;
+}
+
 .agent {
-  transition: opacity 0.2s;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s;
 }
 
 .agent.draggable {
   cursor: grab;
 }
 
-.agent.draggable:active, :global(.dragging) {
+.agent.draggable:active {
   cursor: grabbing;
   filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.3));
 }
 
 .emoji {
   user-select: none; /* Prevents the user from accidentally highlighting the text */
+  -webkit-user-select: none;
   pointer-events: none; /* Passes mouse events through to the group for dragging */
 }
 
 /* Charts */
 .chart-container {
   width: 100%;
+  min-width: 0;
 }
 
 .chart-container path {
@@ -214,12 +284,20 @@ p {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  min-width: 0;
 }
 
 .chart-value {
   margin: 0 0 0.5rem;
   font-size: 0.875rem;
   color: #555;
+}
+
+.chart-container svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
 }
 
 /* Utility Bar Hover Logic */
@@ -234,14 +312,72 @@ p {
 
   /* Wiggle Animation */
   @keyframes wiggle-anim {
-    0%, 100% { transform: rotate(0deg); }
-    25% { transform: rotate(-12deg); }
-    75% { transform: rotate(12deg); }
+    0%, 100% { transform: translateX(0px) rotate(0deg); }
+    25% { transform: translateX(-1.5px) rotate(-4deg); }
+    75% { transform: translateX(1.5px) rotate(4deg); }
   }
   
   /* Svelte scopes CSS, using :global ensures it applies properly to the SVG group if needed, 
      but local scoping works here because the class is directly on the element */
   .wiggle {
-    animation: wiggle-anim 0.3s ease-in-out infinite;
+    animation: wiggle-anim 0.45s ease-in-out infinite;
     transform-origin: center;
+    transform-box: fill-box;
+  }
+
+  .spinner {
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 999px;
+    border: 2px solid rgba(17, 24, 39, 0.2);
+    border-top-color: var(--primary-color);
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (max-width: 1100px) {
+    .exhibit-content {
+      flex-direction: column;
+    }
+
+    .sidebar {
+      width: 100%;
+      min-width: 0;
+      max-height: 45vh;
+    }
+
+    .simulation-canvas {
+      padding: 1rem;
+    }
+
+    .simulation-controls {
+      justify-content: center;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .exhibit-header,
+    .sidebar,
+    .panel {
+      padding: 1rem;
+    }
+
+    .storyboard .actions {
+      justify-content: stretch;
+    }
+
+    .btn-primary,
+    .simulation-toggle {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .simulation-canvas {
+      padding: 0.75rem;
+    }
   }
