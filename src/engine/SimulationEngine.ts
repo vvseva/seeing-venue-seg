@@ -71,10 +71,16 @@ export class SimulationEngine {
 
   public spawnPopulation(): void {
     const totalCells = this.width * this.height;
-    // Subtract 1 to account for the protagonist already on the board
-    const targetAgents = Math.floor(totalCells * this.density) - 1;
+    const targetAgents = Math.max(0, Math.floor(totalCells * this.density) - this.agents.size);
     let spawned = 0;
+
     let agentIdCounter = 1;
+    for (const id of this.agents.keys()) {
+      const match = id.match(/^agent_(\d+)$/);
+      if (match) {
+        agentIdCounter = Math.max(agentIdCounter, Number(match[1]) + 1);
+      }
+    }
 
     while (spawned < targetAgents) {
       const x = Math.floor(Math.random() * this.width);
@@ -98,6 +104,46 @@ export class SimulationEngine {
         spawned++;
       }
     }
+    this.updateAllUtilities();
+  }
+
+  public spawnTutorialGroups(): void {
+    if (!this.agents.has('agent_protagonist')) {
+      this.spawnProtagonist('red');
+    }
+
+    for (const [id, agent] of this.agents.entries()) {
+      if (id.startsWith('agent_tutorial_')) {
+        this.grid[agent.y][agent.x] = null;
+        this.agents.delete(id);
+      }
+    }
+
+    const centerX = Math.floor(this.width / 2);
+    const topY = Math.max(1, Math.floor(this.height * 0.25));
+    const bottomY = Math.min(this.height - 2, Math.floor(this.height * 0.75));
+    const xOffsets = [-1, 0, 1];
+
+    const placeTutorialAgent = (id: string, x: number, y: number, color: EntityColor) => {
+      if (!this.isWithinBounds(x, y) || this.grid[y][x] !== null) return;
+
+      this.agents.set(id, {
+        id,
+        x,
+        y,
+        color,
+        isHappy: false,
+        utility: 0,
+        currentVenueId: null
+      });
+      this.grid[y][x] = id;
+    };
+
+    xOffsets.forEach((offset, index) => {
+      placeTutorialAgent(`agent_tutorial_top_${index + 1}`, centerX + offset, topY, 'red');
+      placeTutorialAgent(`agent_tutorial_bottom_${index + 1}`, centerX + offset, bottomY, 'green');
+    });
+
     this.updateAllUtilities();
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy, onMount } from 'svelte';
   import AgentVisual from './AgentVisual.svelte';
   import VenueVisual from './VenueVisual.svelte';
   import type { Agent, ReactionPreview, Venue } from '../../engine/types/models';
@@ -17,7 +18,49 @@
 
   const width = WORLD_WIDTH;
   const height = WORLD_HEIGHT;
-  const cellSize = 60; // Pixels per grid cell
+  const MIN_CELL_SIZE = 28;
+  const MAX_CELL_SIZE = 60;
+
+  let boardElement: SVGSVGElement | null = null;
+  let cellSize = 45; // Pixels per grid cell
+
+  function clamp(value: number, min: number, max: number) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function updateCellSize() {
+    const host = boardElement?.parentElement;
+    if (!host) return;
+
+    const availableWidth = Math.max(0, host.clientWidth - 8);
+    const availableHeight = host.clientHeight > 0 ? Math.max(0, host.clientHeight - 8) : Number.POSITIVE_INFINITY;
+
+    const sizeFromWidth = Math.floor(availableWidth / width);
+    const sizeFromHeight = Math.floor(availableHeight / height);
+    const nextSize = clamp(Math.min(sizeFromWidth, sizeFromHeight), MIN_CELL_SIZE, MAX_CELL_SIZE);
+
+    if (Number.isFinite(nextSize) && nextSize > 0) {
+      cellSize = nextSize;
+    }
+  }
+
+  onMount(() => {
+    const host = boardElement?.parentElement;
+    if (!host) return;
+
+    const observer = new ResizeObserver(() => {
+      updateCellSize();
+    });
+    observer.observe(host);
+
+    updateCellSize();
+
+    return () => observer.disconnect();
+  });
+
+  onDestroy(() => {
+    boardElement = null;
+  });
   
   $: svgWidth = width * cellSize;
   $: svgHeight = height * cellSize;
@@ -32,6 +75,7 @@
 </script>
 
 <svg
+  bind:this={boardElement}
   viewBox={`0 0 ${svgWidth} ${svgHeight}`}
   preserveAspectRatio="xMidYMid meet"
   class="board"
@@ -49,7 +93,7 @@
         {cellSize} 
         boardWidth={width}
         boardHeight={height}
-        isDraggable={$currentChapterIndex >= 4}
+        isDraggable={$currentChapterIndex >= 5}
       />
     {/each}
   </g>
@@ -62,7 +106,7 @@
         boardWidth={width}
         boardHeight={height}
         ghostReaction={$ghostReactionsStore.find(r => r.id === agent.id)}
-        isDraggable={$currentChapterIndex <= 2}
+        isDraggable={$currentChapterIndex <= 3}
         showProtagonistBadge={$currentChapterIndex <= 1 && agent.id === 'agent_protagonist'}
       />
     {/each}

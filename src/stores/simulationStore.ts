@@ -33,6 +33,9 @@ export const isPlayingStore = writable<boolean>(false);
 
 const STABILITY_WINDOW = 12;
 const STABILITY_DELTA_THRESHOLD = 0.02;
+const CHAPTER_TWO_SHORT_RUN_TICKS = 10;
+
+let stabilityStartIndex = 0;
 
 function rollingMean(values: number[]): number {
   if (values.length === 0) return 0;
@@ -51,11 +54,18 @@ function isMetricStable(history: SegregationMetrics[], selector: (m: Segregation
 }
 
 function shouldAutoPauseForStability(history: SegregationMetrics[]): boolean {
+  const scopedHistory = history.slice(stabilityStartIndex);
+
   return (
-    isMetricStable(history, (m) => m.dissimilarity) &&
-    isMetricStable(history, (m) => m.exposure) &&
-    isMetricStable(history, (m) => m.clustering)
+    isMetricStable(scopedHistory, (m) => m.dissimilarity) &&
+    isMetricStable(scopedHistory, (m) => m.exposure) &&
+    isMetricStable(scopedHistory, (m) => m.clustering)
   );
+}
+
+function resetStabilityWindowBaseline() {
+  const history = get(metricsHistoryStore);
+  stabilityStartIndex = Math.max(0, history.length - 1);
 }
 
 // 3. Helper: Synchronize the engine state with the Svelte stores
@@ -78,12 +88,16 @@ function recordCurrentMetrics() {
 
 // 4. Public Action Functions
 export const simulationActions = {
+  resetStabilityWindow() {
+    resetStabilityWindowBaseline();
+  },
   
   // Resets the board entirely
   reset() {
     engine.initEmptyGrid();
     syncStores();
     metricsHistoryStore.set([engine.getMetrics()]);
+    resetStabilityWindowBaseline();
     this.stop();
   },
 
@@ -118,6 +132,29 @@ export const simulationActions = {
     loop();
   },
 
+  playForTicks(ticks: number = CHAPTER_TWO_SHORT_RUN_TICKS) {
+    if (get(isPlayingStore)) return;
+
+    const totalTicks = Math.max(1, Math.floor(ticks));
+    let ticksRemaining = totalTicks;
+    isPlayingStore.set(true);
+
+    const loop = () => {
+      const isStillActive = this.step();
+      ticksRemaining--;
+
+      if (isStillActive && ticksRemaining > 0 && get(isPlayingStore)) {
+        setTimeout(() => {
+          animationFrameId = requestAnimationFrame(loop);
+        }, 200);
+      } else {
+        this.stop();
+      }
+    };
+
+    loop();
+  },
+
   stop() {
     isPlayingStore.set(false);
     cancelAnimationFrame(animationFrameId);
@@ -129,12 +166,21 @@ export const simulationActions = {
     this.stop();
     engine.spawnProtagonist('red'); // You can default to red or green
     syncStores();
+    resetStabilityWindowBaseline();
+  },
+
+  spawnTutorialGroups() {
+    this.stop();
+    engine.spawnTutorialGroups();
+    syncStores();
+    resetStabilityWindowBaseline();
   },
 
   spawnPopulation() {
     this.stop();
     engine.spawnPopulation();
     syncStores();
+    resetStabilityWindowBaseline();
   },
 
   // --- INTERACTIVE DRAG ACTIONS ---
@@ -155,6 +201,7 @@ export const simulationActions = {
     if (success) {
       syncStores();
       recordCurrentMetrics();
+      resetStabilityWindowBaseline();
     }
     this.clearPreview();
     return success;
@@ -187,6 +234,7 @@ export const simulationActions = {
 
       syncStores();
       recordCurrentMetrics();
+      resetStabilityWindowBaseline();
     } finally {
       isGeneratingVenuesStore.set(false);
     }
@@ -204,6 +252,7 @@ export const simulationActions = {
     if (success) {
       syncStores();
       recordCurrentMetrics();
+      resetStabilityWindowBaseline();
     }
     this.clearPreview();
     return success;

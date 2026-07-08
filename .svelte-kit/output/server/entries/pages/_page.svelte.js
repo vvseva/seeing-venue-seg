@@ -1,4 +1,4 @@
-import "../../chunks/index-server.js";
+import { n as onDestroy } from "../../chunks/index-server.js";
 import { C as escape_html, D as writable, S as attr, T as derived, c as stringify, i as ensure_array_like, l as unsubscribe_stores, n as bind_props, s as store_get, st as fallback, t as attr_class } from "../../chunks/server.js";
 import "../../chunks/index-server2.js";
 import * as d3 from "d3";
@@ -13,39 +13,46 @@ var chaptersData = [
 	},
 	{
 		id: 1,
+		title: "Model Behavior Tutorial",
+		content: "The protagonist now stands between two small groups of different colors, one near the top and one near the bottom. Move the protagonist around and observe how nearby agents react.",
+		actionLabel: "Create Tutorial Setup",
+		dispatchAction: "SPAWN_TUTORIAL_GROUPS"
+	},
+	{
+		id: 2,
 		title: "A Crowded Neighborhood",
 		content: "Let's fill the rest of the city. Our initial resident is now surrounded. Drag them around to see how their utility score changes based on their new neighbors.",
 		actionLabel: "Spawn Population",
 		dispatchAction: "SPAWN_POPULATION"
 	},
 	{
-		id: 2,
+		id: 3,
 		title: "Massive Moves 1",
 		content: "Now we let everyone move. At each tick, unhappy agents will relocate until they are satisfied. Let's watch the macroscopic patterns emerge.",
 		actionLabel: "Run Simulation",
 		dispatchAction: "PLAY_SIMULATION"
 	},
 	{
-		id: 3,
+		id: 4,
 		title: "Outcomes 1",
 		content: "Notice the macro consequences of individual preferences. Segregation has naturally increased.",
 		actionLabel: "Start Tutorial 2: Venues"
 	},
 	{
-		id: 4,
+		id: 5,
 		title: "Venue Generation",
 		content: "Agents now factor venues into their utility. We will generate color-exclusive venues using Voronoi Relaxation to cover the emerged neighborhoods.",
 		actionLabel: "Generate Venues",
 		dispatchAction: "GENERATE_VENUES"
 	},
 	{
-		id: 5,
+		id: 6,
 		title: "Exploration: Venue Impact",
 		content: "Venues have a catchment area. Hover over a venue to see who attends it, and drag it to see how it affects local utility.",
 		actionLabel: "Next: Massive Moves 2"
 	},
 	{
-		id: 6,
+		id: 7,
 		title: "Massive Moves & Outcomes 2",
 		content: "Let's run the simulation again. Observe how the introduction of venues changes the previously segregated environment.",
 		actionLabel: "Run Simulation",
@@ -179,9 +186,13 @@ var SimulationEngine = class {
 	}
 	spawnPopulation() {
 		const totalCells = this.width * this.height;
-		const targetAgents = Math.floor(totalCells * this.density) - 1;
+		const targetAgents = Math.max(0, Math.floor(totalCells * this.density) - this.agents.size);
 		let spawned = 0;
 		let agentIdCounter = 1;
+		for (const id of this.agents.keys()) {
+			const match = id.match(/^agent_(\d+)$/);
+			if (match) agentIdCounter = Math.max(agentIdCounter, Number(match[1]) + 1);
+		}
 		while (spawned < targetAgents) {
 			const x = Math.floor(Math.random() * this.width);
 			const y = Math.floor(Math.random() * this.height);
@@ -201,6 +212,39 @@ var SimulationEngine = class {
 				spawned++;
 			}
 		}
+		this.updateAllUtilities();
+	}
+	spawnTutorialGroups() {
+		if (!this.agents.has("agent_protagonist")) this.spawnProtagonist("red");
+		for (const [id, agent] of this.agents.entries()) if (id.startsWith("agent_tutorial_")) {
+			this.grid[agent.y][agent.x] = null;
+			this.agents.delete(id);
+		}
+		const centerX = Math.floor(this.width / 2);
+		const topY = Math.max(1, Math.floor(this.height * .25));
+		const bottomY = Math.min(this.height - 2, Math.floor(this.height * .75));
+		const xOffsets = [
+			-1,
+			0,
+			1
+		];
+		const placeTutorialAgent = (id, x, y, color) => {
+			if (!this.isWithinBounds(x, y) || this.grid[y][x] !== null) return;
+			this.agents.set(id, {
+				id,
+				x,
+				y,
+				color,
+				isHappy: false,
+				utility: 0,
+				currentVenueId: null
+			});
+			this.grid[y][x] = id;
+		};
+		xOffsets.forEach((offset, index) => {
+			placeTutorialAgent(`agent_tutorial_top_${index + 1}`, centerX + offset, topY, "red");
+			placeTutorialAgent(`agent_tutorial_bottom_${index + 1}`, centerX + offset, bottomY, "green");
+		});
 		this.updateAllUtilities();
 	}
 	isWithinBounds(x, y) {
@@ -802,7 +846,8 @@ function GridWorld($$renderer, $$props) {
 		let ghostReactionsStore = $$props["ghostReactionsStore"];
 		const width = 12;
 		const height = 12;
-		const cellSize = 60;
+		let cellSize = 45;
+		onDestroy(() => {});
 		const bgCells = [];
 		for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) bgCells.push({
 			x,
@@ -825,7 +870,7 @@ function GridWorld($$renderer, $$props) {
 				cellSize,
 				boardWidth: width,
 				boardHeight: height,
-				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 4
+				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 5
 			});
 		}
 		$$renderer.push(`<!--]--></g><g class="layer-agents"><!--[-->`);
@@ -838,7 +883,7 @@ function GridWorld($$renderer, $$props) {
 				boardWidth: width,
 				boardHeight: height,
 				ghostReaction: store_get($$store_subs ??= {}, "$ghostReactionsStore", ghostReactionsStore).find((r) => r.id === agent.id),
-				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 2,
+				isDraggable: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 3,
 				showProtagonistBadge: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) <= 1 && agent.id === "agent_protagonist"
 			});
 		}
