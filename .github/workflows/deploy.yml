@@ -3,31 +3,50 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build_site:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 22
           cache: npm
 
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Set BASE_PATH
+        run: |
+          if [[ "${{ github.event.repository.name }}" == "${{ github.repository_owner }}.github.io" ]]; then
+            echo "BASE_PATH=" >> "$GITHUB_ENV"
+          else
+            echo "BASE_PATH=/${{ github.event.repository.name }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: build
-        env:
-          BASE_PATH: "/${{ github.event.repository.name }}"
         run: |
           npm run build
 
       - name: Upload Artifacts
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@v3
         with:
           path: "build/"
 
@@ -45,4 +64,4 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4
