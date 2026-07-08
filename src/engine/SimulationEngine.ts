@@ -16,6 +16,7 @@ export class SimulationEngine {
   private density: number;
   private similarityThreshold: number;
   private venueBoost: number;
+  private readonly VENUE_RADIUS = 3;
 
   // 2D Array mapping [y][x] coordinates to an entity ID (or null if empty)
   private grid: (string | null)[][];
@@ -38,8 +39,7 @@ export class SimulationEngine {
   }
 
   // --- INITIALIZATION ---
-
-  public init(): void {
+  public initEmptyGrid(): void {
     this.grid = Array.from({ length: this.height }, () => 
       Array(this.width).fill(null)
     );
@@ -47,30 +47,93 @@ export class SimulationEngine {
     this.agents.clear();
     this.venues.clear();
     this.tickCount = 0;
+  }
 
-    let idCounter = 0;
+  public spawnProtagonist(color: EntityColor = 'red'): void {
+    const centerX = Math.floor(this.width / 2);
+    const centerY = Math.floor(this.height / 2);
+    const id = "agent_protagonist";
+
+    this.agents.set(id, {
+      id,
+      x: centerX,
+      y: centerY,
+      color,
+      isHappy: true,
+      utility: 1,
+      isProtagonist: true,
+      currentVenueId: null
+    });
+
+    this.grid[centerY][centerX] = id;
+    this.updateAllUtilities();
+  }
+
+  public spawnPopulation(): void {
     const totalCells = this.width * this.height;
-    const targetPopulation = Math.floor(totalCells * this.density);
+    // Subtract 1 to account for the protagonist already on the board
+    const targetAgents = Math.floor(totalCells * this.density) - 1;
+    let spawned = 0;
+    let agentIdCounter = 1;
 
-    let placed = 0;
-    while (placed < targetPopulation) {
+    while (spawned < targetAgents) {
       const x = Math.floor(Math.random() * this.width);
       const y = Math.floor(Math.random() * this.height);
 
+      // Only spawn if cell is empty
       if (this.grid[y][x] === null) {
         const color: EntityColor = Math.random() > 0.5 ? 'red' : 'green';
-        const agentId = `a_${idCounter++}`;
-        
-        const newAgent: Agent = { id: agentId, x, y, color, isHappy: false, utility: 0 };
-        this.grid[y][x] = agentId;
-        this.agents.set(agentId, newAgent);
-        
-        placed++;
+        const id = `agent_${agentIdCounter++}`;
+
+        this.agents.set(id, {
+          id,
+          x,
+          y,
+          color,
+          isHappy: false, 
+          utility: 0,
+          isProtagonist: false,
+          currentVenueId: null
+        });
+        this.grid[y][x] = id;
+        spawned++;
       }
     }
-    
     this.updateAllUtilities();
   }
+
+  // public init(): void {
+  //   this.grid = Array.from({ length: this.height }, () => 
+  //     Array(this.width).fill(null)
+  //   );
+    
+  //   this.agents.clear();
+  //   this.venues.clear();
+  //   this.tickCount = 0;
+
+  //   let idCounter = 0;
+  //   const totalCells = this.width * this.height;
+  //   const targetPopulation = Math.floor(totalCells * this.density);
+
+  //   let placed = 0;
+  //   while (placed < targetPopulation) {
+  //     const x = Math.floor(Math.random() * this.width);
+  //     const y = Math.floor(Math.random() * this.height);
+
+  //     if (this.grid[y][x] === null) {
+  //       const color: EntityColor = Math.random() > 0.5 ? 'red' : 'green';
+  //       const agentId = `a_${idCounter++}`;
+        
+  //       const newAgent: Agent = { id: agentId, x, y, color, isHappy: false, utility: 0 };
+  //       this.grid[y][x] = agentId;
+  //       this.agents.set(agentId, newAgent);
+        
+  //       placed++;
+  //     }
+  //   }
+    
+  //   this.updateAllUtilities();
+  // }
 
   // --- CORE LOGIC ---
 
@@ -174,13 +237,81 @@ export class SimulationEngine {
     return totalUtility + epsilon;
   }
 
-  public updateAllUtilities(): void {
-    for (const [id, agent] of this.agents) {
-      const newScore = this.calculateUtilityScore(agent.color, agent.x, agent.y);
-      agent.utility = newScore;
+  private updateAllUtilities(): void {
+    // Phase 1: Sweep - Calculate venue attendance scores based on radius
+    const venueScores = new Map<string, number>();
+
+    for (const venue of this.venues.values()) {
+      let sameColor = 0;
+      let totalInRadius = 0;
+
+      for (const agent of this.agents.values()) {
+        // Euclidean distance
+        const dist = Math.sqrt(Math.pow(agent.x - venue.x, 2) + Math.pow(agent.y - venue.y, 2));
+        if (dist <= this.VENUE_RADIUS) {
+          totalInRadius++;
+          if (agent.color === venue.color) {
+            sameColor++;
+          }
+        }
+      }
+      const score = totalInRadius > 0 ? (sameColor / totalInRadius) : 0;
+      venueScores.set(venue.id, score);
+    }
+
+    // Phase 2: Agent Utility
+    for (const agent of this.agents.values()) {
       
-      // We still derive a boolean so the UI knows whether to draw a solid or dashed border
-      agent.isHappy = newScore >= this.similarityThreshold;
+      // 1. Neighborhood Utility
+      let sameNeighbors = 0;
+      let totalNeighbors = 0;
+
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = agent.x + dx;
+          const ny = agent.y + dy;
+
+          if (nx >= 0 && nx < this.width && ny >= 0 && ny < this.height) {
+            const neighborId = this.grid[ny][nx];
+            if (neighborId) {
+              totalNeighbors++;
+              const neighbor = this.agents.get(neighborId)!;
+              if (neighbor.color === agent.color) sameNeighbors++;
+            }
+          }
+        }
+      }
+
+      const uNeighborhood = totalNeighbors > 0 ? (sameNeighbors / totalNeighbors) : 1.0;
+
+      // 2. Venue Utility (Find closest matching venue)
+      let closestVenueId: string | null = null;
+      let minDistance = Infinity;
+
+      for (const venue of this.venues.values()) {
+        if (venue.color === agent.color) {
+          const dist = Math.sqrt(Math.pow(agent.x - venue.x, 2) + Math.pow(agent.y - venue.y, 2));
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestVenueId = venue.id;
+          }
+        }
+      }
+
+      // Only assign venue utility if within the radius limit
+      agent.currentVenueId = (minDistance <= this.VENUE_RADIUS) ? closestVenueId : null;
+      const uVenue = agent.currentVenueId ? (venueScores.get(agent.currentVenueId) || 0) : 0;
+
+      // 3. Combine Utilities
+      // If no venues exist (Tutorial Chapters 0-2), rely purely on neighborhood to avoid halving utility
+      if (this.venues.size === 0) {
+        agent.utility = uNeighborhood;
+      } else {
+        agent.utility = (0.5 * uNeighborhood) + (0.5 * uVenue);
+      }
+      
+      agent.isHappy = agent.utility >= this.similarityThreshold;
     }
   }
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as d3 from 'd3';
   import type { Agent } from '../../engine/types/models';
-  import { simulationActions } from '../../stores/simulationStore';
+  import { simulationActions, hoveredVenueId } from '../../stores/simulationStore';
   
   export let agent: Agent;
   export let cellSize: number;
@@ -14,6 +14,14 @@
   // Calculate translation coordinates for the SVG Group
   $: tx = agent.x * cellSize + cellSize / 2;
   $: ty = agent.y * cellSize + cellSize / 2;
+
+  // React to the venue hover state for the wiggle animation
+  $: isWiggling = $hoveredVenueId !== null && $hoveredVenueId === agent.currentVenueId;
+
+  // Utility bar calculations
+  const barMaxWidth = cellSize * 0.7; // Scale to cell size
+  $: utilityWidth = agent.utility * barMaxWidth;
+  $: barX = -(barMaxWidth / 2);
 
   // D3 Drag Binding via Svelte Action
  function draggable(node: SVGElement) {
@@ -62,44 +70,25 @@
 <g
   use:draggable
   transform="translate({tx},{ty})"
-  class="agent"
+  class="agent {isWiggling ? 'wiggle' : ''}"
   class:draggable={isDraggable}
 >
+  <g class="utility-bar-group">
+    <rect x={barX} y={-cellSize * 0.45} width={barMaxWidth} height="5" fill="#e0e0e0" rx="2.5" />
+    <rect x={barX} y={-cellSize * 0.45} width={utilityWidth} height="5" fill={agent.color} rx="2.5" />
+  </g>
+
   <circle
     cx="0"
     cy="0"
     r={cellSize * 0.35}
     fill={agent.color}
-    stroke={isHappy ? "#1f2937" : "#facc15"}
-    stroke-width="0"
-    stroke-dasharray={isHappy ? "none" : "4,4"}
+    stroke={isHappy ? "#111" : "#fff"}
+    stroke-width={isHappy ? 0 : 2}
+    stroke-dasharray={isHappy ? "none" : "4 2"}
   />
-  
-  <text
-    x="0"
-    y="-2" 
-    text-anchor="middle"
-    dominant-baseline="central"
-    font-size="{cellSize * 0.5}px"
-    class="emoji"
-  >
-    {isHappy ? '😀' : '😞'}
-  </text>
-</g>
 
-<style>
-  .agent {
-    transition: opacity 0.2s;
-  }
-  .agent.draggable {
-    cursor: grab;
-  }
-  .agent.draggable:active, :global(.dragging) {
-    cursor: grabbing;
-    filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.3));
-  }
-  .emoji {
-    user-select: none; /* Prevents the user from accidentally highlighting the text */
-    pointer-events: none; /* Passes mouse events through to the group for dragging */
-  }
-</style>
+  {#if agent.isProtagonist}
+    <text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none">🥳</text>
+  {/if}
+</g>

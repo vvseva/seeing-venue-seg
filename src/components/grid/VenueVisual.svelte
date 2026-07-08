@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as d3 from 'd3';
-  import { simulationActions } from '../../stores/simulationStore';
+  import { simulationActions, hoveredVenueId } from '../../stores/simulationStore';
   import type { Venue } from '../../engine/types/models';
   
   export let venue: Venue;
@@ -43,6 +43,14 @@
     d3.select(node).call(drag);
     return { destroy() { d3.select(node).on(".drag", null); } };
   }
+  
+  function handleMouseEnter() {
+    hoveredVenueId.set(venue.id);
+  }
+
+  function handleMouseLeave() {
+    hoveredVenueId.set(null);
+  }
 </script>
 
 <g
@@ -50,6 +58,11 @@
   transform="translate({tx},{ty})"
   class="venue"
   class:draggable={isDraggable}
+  role="button"
+  tabindex="0"
+  aria-label="Venue {venue.id}"
+  on:mouseenter={handleMouseEnter}
+  on:mouseleave={handleMouseLeave}
 >
   <rect
     x="0"
@@ -74,20 +87,3 @@
     🏛️
   </text>
 </g>
-
-<style>
-  .venue {
-    transition: filter 0.2s;
-  }
-  .venue.draggable {
-    cursor: grab;
-  }
-  .venue.draggable:active, :global(.dragging) {
-    cursor: grabbing;
-    filter: drop-shadow(0px 8px 12px rgba(0,0,0,0.4));
-  }
-  .emoji {
-    user-select: none;
-    pointer-events: none;
-  }
-</style>

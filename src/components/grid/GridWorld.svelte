@@ -3,7 +3,7 @@
   import VenueVisual from './VenueVisual.svelte';
   import type { Agent, ReactionPreview, Venue } from '../../engine/types/models';
   import type { Writable } from 'svelte/store';
-  import { currentChapterIndex } from '../../stores/narrativeStore'; // NEW
+  import { currentChapterIndex } from '../../stores/narrativeStore'; 
   
   type GridCell = {
     x: number;
@@ -14,8 +14,8 @@
   export let venuesStore: Writable<Venue[]>;
   export let ghostReactionsStore: Writable<ReactionPreview[]>;
 
-  const width = 10;
-  const height = 10;
+  const width = 15;
+  const height = 15;
   const cellSize = 60; // Pixels per grid cell
   
   $: svgWidth = width * cellSize;
@@ -42,7 +42,7 @@
       <VenueVisual 
         {venue} 
         {cellSize} 
-        isDraggable={$currentChapterIndex === 4} 
+        isDraggable={$currentChapterIndex >= 4}
       />
     {/each}
   </g>
@@ -53,7 +53,7 @@
         {agent} 
         {cellSize} 
         ghostReaction={$ghostReactionsStore.find(r => r.id === agent.id)}
-        isDraggable={$currentChapterIndex === 0}
+        isDraggable={$currentChapterIndex <= 1 ? agent.isProtagonist : $currentChapterIndex > 1}
       />
     {/each}
   </g>

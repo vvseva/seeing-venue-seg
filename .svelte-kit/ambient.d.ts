@@ -38,6 +38,7 @@
  * The above values will be the same _even if_ different values for `ENVIRONMENT` or `PUBLIC_BASE_URL` are set at runtime, as they are statically replaced in your code with their build time values.
  */
 declare module '$env/static/private' {
+	export const PYTHON_BASIC_REPL: string;
 	export const LESSOPEN: string;
 	export const USER: string;
 	export const npm_config_user_agent: string;
@@ -81,6 +82,7 @@ declare module '$env/static/private' {
 	export const XDG_RUNTIME_DIR: string;
 	export const DISPLAY: string;
 	export const LANG: string;
+	export const PYTHONSTARTUP: string;
 	export const LS_COLORS: string;
 	export const VSCODE_GIT_IPC_HANDLE: string;
 	export const TERM_PROGRAM: string;
@@ -192,6 +194,7 @@ declare module '$env/static/public' {
  */
 declare module '$env/dynamic/private' {
 	export const env: {
+		PYTHON_BASIC_REPL: string;
 		LESSOPEN: string;
 		USER: string;
 		npm_config_user_agent: string;
@@ -235,6 +238,7 @@ declare module '$env/dynamic/private' {
 		XDG_RUNTIME_DIR: string;
 		DISPLAY: string;
 		LANG: string;
+		PYTHONSTARTUP: string;
 		LS_COLORS: string;
 		VSCODE_GIT_IPC_HANDLE: string;
 		TERM_PROGRAM: string;

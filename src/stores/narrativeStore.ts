@@ -6,46 +6,54 @@ export interface Chapter {
   title: string;
   content: string;
   actionLabel: string;
-  dispatchAction?: 'GENERATE_VENUES' | 'PLAY_SIMULATION' | 'RESET';
+  dispatchAction?: 'SPAWN_PROTAGONIST' | 'SPAWN_POPULATION' | 'GENERATE_VENUES' | 'PLAY_SIMULATION' | 'RESET';
 }
 
 const chaptersData: Chapter[] = [
-  // --- TUTORIAL 1 ---
+  // --- INTRO & TUTORIAL 1 ---
   {
     id: 0,
-    title: "Exploration: Baseline Logic",
-    content: "Agents want to live near similar neighbors. Drag an agent to a different cell. Notice how the surrounding agents react instantly to their new neighbor.",
-    actionLabel: "Next: Massive Moves"
+    title: "The First Resident",
+    content: "We start with an empty grid. Let's welcome our very first resident. They currently have no neighbors and no venues to attend.",
+    actionLabel: "Spawn Protagonist",
+    dispatchAction: 'SPAWN_PROTAGONIST'
   },
   {
     id: 1,
+    title: "A Crowded Neighborhood",
+    content: "Let's fill the rest of the city. Our initial resident is now surrounded. Drag them around to see how their utility score changes based on their new neighbors.",
+    actionLabel: "Spawn Population",
+    dispatchAction: 'SPAWN_POPULATION'
+  },
+  {
+    id: 2,
     title: "Massive Moves 1",
-    content: "At each tick, the 10% least happy agents will randomly move around until they are happy. Let's watch the macroscopic patterns emerge.",
+    content: "Now we let everyone move. At each tick, unhappy agents will relocate until they are satisfied. Let's watch the macroscopic patterns emerge.",
     actionLabel: "Run Simulation",
     dispatchAction: 'PLAY_SIMULATION'
   },
   {
-    id: 2,
+    id: 3,
     title: "Outcomes 1",
-    content: "Notice the macro consequences of individual preferences. Look at the graphs: Segregation (clustering and dissimilarity) has naturally increased.",
+    content: "Notice the macro consequences of individual preferences. Segregation has naturally increased.",
     actionLabel: "Start Tutorial 2: Venues"
   },
   // --- TUTORIAL 2 ---
   {
-    id: 3,
+    id: 4,
     title: "Venue Generation",
-    content: "Agents now need venues in addition to similar neighbors. We will generate color-exclusive venues using Voronoi Relaxation to cover the emerged neighborhoods.",
+    content: "Agents now factor venues into their utility. We will generate color-exclusive venues using Voronoi Relaxation to cover the emerged neighborhoods.",
     actionLabel: "Generate Venues",
     dispatchAction: 'GENERATE_VENUES'
   },
   {
-    id: 4,
+    id: 5,
     title: "Exploration: Venue Impact",
-    content: "Venues have a catchment area. Drag a venue into different cells. The agents won't move, but they will show if they are happy or not based on the new venue location.",
+    content: "Venues have a catchment area. Hover over a venue to see who attends it, and drag it to see how it affects local utility.",
     actionLabel: "Next: Massive Moves 2"
   },
   {
-    id: 5,
+    id: 6,
     title: "Massive Moves & Outcomes 2",
     content: "Let's run the simulation again. Observe how the introduction of venues changes the previously segregated environment.",
     actionLabel: "Run Simulation",

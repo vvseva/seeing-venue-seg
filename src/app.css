@@ -172,14 +172,33 @@ p {
   stroke-dasharray: 4;
 }
 
-.agent {
+.venue {
+  transition: filter 0.2s;
+}
+.venue.draggable {
   cursor: grab;
-  transition: stroke-dasharray 0.2s, stroke 0.2s;
+}
+.venue.draggable:active, :global(.dragging) {
+  cursor: grabbing;
+  filter: drop-shadow(0px 8px 12px rgba(0,0,0,0.4));
 }
 
-.agent:active, .dragging {
+.agent {
+  transition: opacity 0.2s;
+}
+
+.agent.draggable {
+  cursor: grab;
+}
+
+.agent.draggable:active, :global(.dragging) {
   cursor: grabbing;
   filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.3));
+}
+
+.emoji {
+  user-select: none; /* Prevents the user from accidentally highlighting the text */
+  pointer-events: none; /* Passes mouse events through to the group for dragging */
 }
 
 /* Charts */
@@ -190,3 +209,39 @@ p {
 .chart-container path {
   transition: d 0.3s ease-in-out;
 }
+
+.charts-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.chart-value {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: #555;
+}
+
+/* Utility Bar Hover Logic */
+  .utility-bar-group {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none; /* Prevents bar from interfering with drag clicks */
+  }
+  .agent:hover .utility-bar-group {
+    opacity: 1;
+  }
+
+  /* Wiggle Animation */
+  @keyframes wiggle-anim {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(-12deg); }
+    75% { transform: rotate(12deg); }
+  }
+  
+  /* Svelte scopes CSS, using :global ensures it applies properly to the SVG group if needed, 
+     but local scoping works here because the class is directly on the element */
+  .wiggle {
+    animation: wiggle-anim 0.3s ease-in-out infinite;
+    transform-origin: center;
+  }

@@ -2,26 +2,21 @@
   import { currentChapter, currentChapterIndex, narrativeActions } from '../../stores/narrativeStore';
   import { isPlayingStore, simulationActions } from '../../stores/simulationStore';
 
-  const finalChapterIndex = 5;
-
-  function handleActionClick() {
-    if ($currentChapter.dispatchAction === 'GENERATE_VENUES') {
-      simulationActions.generateEmergentVenues();
-    } else if ($currentChapter.dispatchAction === 'PLAY_SIMULATION') {
-      simulationActions.play();
-    }
-  
-    // Advance the text after dispatching the current chapter action.
-    narrativeActions.next();
-  }
+  const finalChapterIndex = 6; // Updated to match new chapter length
 
   function nextPhase() {
-    if ($currentChapter.dispatchAction === 'GENERATE_VENUES') {
+    // 1. Fire the specific action if the chapter demands it
+    if ($currentChapter.dispatchAction === 'SPAWN_PROTAGONIST') {
+      simulationActions.spawnProtagonist();
+    } else if ($currentChapter.dispatchAction === 'SPAWN_POPULATION') {
+      simulationActions.spawnPopulation();
+    } else if ($currentChapter.dispatchAction === 'GENERATE_VENUES') {
       simulationActions.generateEmergentVenues();
     } else if ($currentChapter.dispatchAction === 'PLAY_SIMULATION') {
       simulationActions.play();
     }
 
+    // 2. Advance the narrative
     if ($currentChapterIndex < finalChapterIndex) {
       narrativeActions.next();
     }
@@ -44,25 +39,10 @@
     <button class="btn-primary" on:click={nextPhase}>
       {$currentChapter.actionLabel}
     </button>
-    <button class="btn-secondary" on:click={toggleSimulation}>
-      {$isPlayingStore ? 'Pause' : 'Continue'}
-    </button>
+    {#if $currentChapter.dispatchAction === 'PLAY_SIMULATION' || $currentChapterIndex > 1}
+      <button class="btn-secondary" on:click={toggleSimulation}>
+        {$isPlayingStore ? 'Pause Simulation' : 'Run Simulation'}
+      </button>
+    {/if}
   </div>
 </div>
-
-<style>
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .btn-secondary {
-    border: 1px solid #6b7280;
-    background: #f3f4f6;
-    color: #111827;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.5rem;
-    cursor: pointer;
-  }
-</style>

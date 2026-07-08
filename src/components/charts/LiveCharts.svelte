@@ -105,27 +105,3 @@
     </div>
   {/each}
 </div>
-
-<style>
-  .charts-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-  .chart-container {
-    width: 100%;
-  }
-  h3 {
-    font-size: 1rem;
-    color: #333;
-    margin-bottom: 0.5rem;
-  }
-  .chart-value {
-    margin: 0 0 0.5rem;
-    font-size: 0.875rem;
-    color: #555;
-  }
-  path {
-    transition: d 0.3s ease-in-out;
-  }
-</style>

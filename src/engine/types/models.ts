@@ -6,7 +6,9 @@ export interface Agent {
   y: number;
   color: EntityColor;
   isHappy: boolean;
-  utility: number; // NEW: Continuous score for sorting
+  utility: number;
+  isProtagonist?: boolean;
+  currentVenueId?: string | null; 
 }
 
 export interface Venue {

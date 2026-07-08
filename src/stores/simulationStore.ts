@@ -12,7 +12,7 @@ export const engine = new SimulationEngine({
 });
 
 // Initialize the grid mathematically before exposing to UI
-engine.init();
+engine.initEmptyGrid();
 
 // 2. Reactive State Stores for Svelte Components
 export const agentsStore = writable<Agent[]>(Array.from(engine.agents.values()));
@@ -22,6 +22,7 @@ export const metricsHistoryStore = writable<SegregationMetrics[]>([engine.getMet
 
 // Temporary state for the "Exploration" drag-and-drop feature
 export const ghostReactionsStore = writable<ReactionPreview[]>([]);
+export const hoveredVenueId = writable<string | null>(null);
 
 // Internal loop reference for playing/pausing
 let animationFrameId: number;
@@ -77,7 +78,7 @@ export const simulationActions = {
   
   // Resets the board entirely
   reset() {
-    engine.init();
+    engine.initEmptyGrid();
     syncStores();
     metricsHistoryStore.set([engine.getMetrics()]);
     this.stop();
@@ -117,6 +118,20 @@ export const simulationActions = {
   stop() {
     isPlayingStore.set(false);
     cancelAnimationFrame(animationFrameId);
+  },
+
+
+  // NEW: Narrative initialization triggers
+  spawnProtagonist() {
+    this.stop();
+    engine.spawnProtagonist('red'); // You can default to red or green
+    syncStores();
+  },
+
+  spawnPopulation() {
+    this.stop();
+    engine.spawnPopulation();
+    syncStores();
   },
 
   // --- INTERACTIVE DRAG ACTIONS ---
