@@ -1,7 +1,11 @@
 import { tick } from 'svelte';
 import { writable, get } from 'svelte/store';
 import { SimulationEngine } from '../engine/SimulationEngine';
-import { WORLD_HEIGHT, WORLD_WIDTH } from '../engine/world';
+import {
+  DEFAULT_WORLD_PARAMETERS,
+  sanitizeWorldParameters,
+  type WorldParameters
+} from '../engine/world';
 import type { Agent, Venue, ReactionPreview, SegregationMetrics } from '../engine/types/models';
 import {
   averageComparisonRuns,
@@ -17,34 +21,34 @@ type PolicyRunRecord = {
 };
 
 type ComparisonTickRecord = TickMetrics;
+export type VisualizationStyle = 'cats-and-dogs' | 'emoji';
+
+export const worldParametersStore = writable<WorldParameters>({ ...DEFAULT_WORLD_PARAMETERS });
+export const visualizationStyleStore = writable<VisualizationStyle>('cats-and-dogs');
+
+function createEngineFromParameters(parameters: WorldParameters): SimulationEngine {
+  const nextEngine = new SimulationEngine({
+    width: parameters.width,
+    height: parameters.height,
+    density: parameters.density,
+    similarityThreshold: parameters.similarityThreshold,
+    venueRadius: parameters.venueRadius
+  });
+
+  nextEngine.initEmptyGrid();
+  return nextEngine;
+}
 
 // 1. Initialize the headless engine
-export const engine = new SimulationEngine({
-  width: WORLD_WIDTH,
-  height: WORLD_HEIGHT,
-  density: 0.8,
-  similarityThreshold: 0.5
-});
+export let engine = createEngineFromParameters(DEFAULT_WORLD_PARAMETERS);
+let compareUserEngine = createEngineFromParameters(DEFAULT_WORLD_PARAMETERS);
+let compareExemplarEngine = createEngineFromParameters(DEFAULT_WORLD_PARAMETERS);
 
-// Initialize the grid mathematically before exposing to UI
-engine.initEmptyGrid();
-
-const compareUserEngine = new SimulationEngine({
-  width: WORLD_WIDTH,
-  height: WORLD_HEIGHT,
-  density: 0.8,
-  similarityThreshold: 0.5
-});
-
-const compareExemplarEngine = new SimulationEngine({
-  width: WORLD_WIDTH,
-  height: WORLD_HEIGHT,
-  density: 0.8,
-  similarityThreshold: 0.5
-});
-
-compareUserEngine.initEmptyGrid();
-compareExemplarEngine.initEmptyGrid();
+function recreateAllEngines(parameters: WorldParameters): void {
+  engine = createEngineFromParameters(parameters);
+  compareUserEngine = createEngineFromParameters(parameters);
+  compareExemplarEngine = createEngineFromParameters(parameters);
+}
 
 // 2. Reactive State Stores for Svelte Components
 export const agentsStore = writable<Agent[]>(Array.from(engine.agents.values()));
@@ -177,14 +181,8 @@ function runBackgroundTrajectory(
   placement: Venue[],
   ticks: number
 ): ComparisonTickRecord[] {
-  const backgroundEngine = new SimulationEngine({
-    width: WORLD_WIDTH,
-    height: WORLD_HEIGHT,
-    density: 0.8,
-    similarityThreshold: 0.5
-  });
-
-  backgroundEngine.initEmptyGrid();
+  const parameters = get(worldParametersStore);
+  const backgroundEngine = createEngineFromParameters(parameters);
   backgroundEngine.initializeScenario(baselineAgents, placement);
 
   const history: ComparisonTickRecord[] = [backgroundEngine.getMetrics()];
@@ -198,13 +196,45 @@ function runBackgroundTrajectory(
 
 // 4. Public Action Functions
 export const simulationActions = {
+  setVisualizationStyle(style: VisualizationStyle) {
+    visualizationStyleStore.set(style);
+  },
+
+  applyWorldParameters(nextParameters: Partial<WorldParameters>) {
+    this.stop();
+
+    const current = get(worldParametersStore);
+    const merged = sanitizeWorldParameters({
+      ...current,
+      ...nextParameters
+    });
+
+    worldParametersStore.set(merged);
+    recreateAllEngines(merged);
+    syncStores();
+
+    hoveredVenueId.set(null);
+    metricsHistoryStore.set([engine.getMetrics()]);
+    policyTargetAveragesStore.set(null);
+    userPolicyResultStore.set(null);
+    exemplarPolicyResultStore.set(null);
+    policyBaselineAgentsSnapshot = null;
+    resetComparisonStores();
+    resetStabilityWindowBaseline();
+  },
+
+  resetWorldParametersToDefaults() {
+    this.applyWorldParameters(DEFAULT_WORLD_PARAMETERS);
+  },
+
   resetStabilityWindow() {
     resetStabilityWindowBaseline();
   },
   
   // Resets the board entirely
   reset() {
-    engine.initEmptyGrid();
+    this.stop();
+    recreateAllEngines(get(worldParametersStore));
     syncStores();
     hoveredVenueId.set(null);
     metricsHistoryStore.set([engine.getMetrics()]);
@@ -214,7 +244,6 @@ export const simulationActions = {
     policyBaselineAgentsSnapshot = null;
     resetComparisonStores();
     resetStabilityWindowBaseline();
-    this.stop();
   },
 
   // Advances the simulation by exactly one tick
@@ -504,11 +533,8 @@ export const simulationActions = {
     });
 
     try {
-      // Call the Voronoi Relaxation algorithm.
-      // In a 10x10 grid with 80% density, there are ~40 agents of each color.
-      // A capacity of 20 means the math will automatically generate 2 venues per color (4 total)
-      // and push them apart so they perfectly cover the map.
-      engine.generateVenuesLloyds(20);
+      const { venueCapacity } = get(worldParametersStore);
+      engine.generateVenuesLloyds(venueCapacity);
 
       syncStores();
       recordCurrentMetrics();

@@ -14,7 +14,14 @@ import {
   isWithinBounds,
   runLloydMedoids
 } from './math/simulationCoreMath';
-import { WORLD_HEIGHT, WORLD_WIDTH } from './world';
+import {
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+  WORLD_DENSITY,
+  WORLD_SIMILARITY_THRESHOLD,
+  WORLD_VENUE_RADIUS,
+  WORLD_VENUE_CAPACITY
+} from './world';
 
 export class SimulationEngine {
   public width: number;
@@ -22,7 +29,7 @@ export class SimulationEngine {
 
   private density: number;
   private similarityThreshold: number;
-  private readonly VENUE_RADIUS = 3;
+  private venueRadius: number;
 
   private grid: (string | null)[][];
 
@@ -33,8 +40,9 @@ export class SimulationEngine {
   constructor(config: SimulationConfig = {}) {
     this.width = config.width ?? WORLD_WIDTH;
     this.height = config.height ?? WORLD_HEIGHT;
-    this.density = config.density ?? 0.7;
-    this.similarityThreshold = config.similarityThreshold ?? 0.5;
+    this.density = config.density ?? WORLD_DENSITY;
+    this.similarityThreshold = config.similarityThreshold ?? WORLD_SIMILARITY_THRESHOLD;
+    this.venueRadius = config.venueRadius ?? WORLD_VENUE_RADIUS;
 
     this.grid = [];
     this.agents = new Map<string, Agent>();
@@ -135,7 +143,7 @@ export class SimulationEngine {
     const originalOccupant = this.grid[hoverY][hoverX];
     this.grid[hoverY][hoverX] = draggedId;
 
-    const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.VENUE_RADIUS);
+    const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.venueRadius);
     const reactions: ReactionPreview[] = [];
 
     for (let dy = -1; dy <= 1; dy++) {
@@ -160,7 +168,7 @@ export class SimulationEngine {
           venueScores,
           this.width,
           this.height,
-          this.VENUE_RADIUS,
+          this.venueRadius,
           this.similarityThreshold
         );
 
@@ -269,7 +277,7 @@ export class SimulationEngine {
     venue.x = hoverX;
     venue.y = hoverY;
 
-    const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.VENUE_RADIUS);
+    const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.venueRadius);
     const reactions: ReactionPreview[] = [];
 
     for (const agent of this.agents.values()) {
@@ -281,7 +289,7 @@ export class SimulationEngine {
         venueScores,
         this.width,
         this.height,
-        this.VENUE_RADIUS,
+        this.venueRadius,
         this.similarityThreshold
       );
 
@@ -386,7 +394,7 @@ export class SimulationEngine {
     return true;
   }
 
-  public generateVenuesLloyds(capacityPerVenue: number = 20): void {
+  public generateVenuesLloyds(capacityPerVenue: number = WORLD_VENUE_CAPACITY): void {
     this.clearAllVenues();
 
     const activeColors: EntityColor[] = ['red', 'green'];
@@ -585,7 +593,7 @@ export class SimulationEngine {
   }
 
   private updateAllUtilities(): void {
-    const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.VENUE_RADIUS);
+    const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.venueRadius);
 
     for (const agent of this.agents.values()) {
       const next = computeAgentUtility(
@@ -596,7 +604,7 @@ export class SimulationEngine {
         venueScores,
         this.width,
         this.height,
-        this.VENUE_RADIUS,
+        this.venueRadius,
         this.similarityThreshold
       );
 

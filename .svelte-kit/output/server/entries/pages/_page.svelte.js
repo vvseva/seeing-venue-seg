@@ -316,6 +316,24 @@ function runLloydMedoids(targetAgents, k, iterations) {
 	}
 	return trackers;
 }
+var DEFAULT_WORLD_PARAMETERS = {
+	width: 12,
+	height: 12,
+	density: .8,
+	similarityThreshold: .5,
+	venueRadius: 3,
+	venueCapacity: 20
+};
+function sanitizeWorldParameters(input) {
+	return {
+		width: Math.max(4, Math.min(60, Math.floor(input.width ?? DEFAULT_WORLD_PARAMETERS.width))),
+		height: Math.max(4, Math.min(60, Math.floor(input.height ?? DEFAULT_WORLD_PARAMETERS.height))),
+		density: Math.max(.05, Math.min(.99, input.density ?? DEFAULT_WORLD_PARAMETERS.density)),
+		similarityThreshold: Math.max(0, Math.min(1, input.similarityThreshold ?? DEFAULT_WORLD_PARAMETERS.similarityThreshold)),
+		venueRadius: Math.max(1, Math.min(20, Math.floor(input.venueRadius ?? DEFAULT_WORLD_PARAMETERS.venueRadius))),
+		venueCapacity: Math.max(1, Math.min(200, Math.floor(input.venueCapacity ?? DEFAULT_WORLD_PARAMETERS.venueCapacity)))
+	};
+}
 //#endregion
 //#region src/engine/SimulationEngine.ts
 var SimulationEngine = class {
@@ -323,7 +341,7 @@ var SimulationEngine = class {
 	height;
 	density;
 	similarityThreshold;
-	VENUE_RADIUS = 3;
+	venueRadius;
 	grid;
 	agents;
 	venues;
@@ -331,8 +349,9 @@ var SimulationEngine = class {
 	constructor(config = {}) {
 		this.width = config.width ?? 12;
 		this.height = config.height ?? 12;
-		this.density = config.density ?? .7;
+		this.density = config.density ?? .8;
 		this.similarityThreshold = config.similarityThreshold ?? .5;
+		this.venueRadius = config.venueRadius ?? 3;
 		this.grid = [];
 		this.agents = /* @__PURE__ */ new Map();
 		this.venues = /* @__PURE__ */ new Map();
@@ -407,7 +426,7 @@ var SimulationEngine = class {
 		if (hoveredOccupant !== null && hoveredOccupant !== draggedId) return [];
 		const originalOccupant = this.grid[hoverY][hoverX];
 		this.grid[hoverY][hoverX] = draggedId;
-		const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.VENUE_RADIUS);
+		const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.venueRadius);
 		const reactions = [];
 		for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
 			if (dx === 0 && dy === 0) continue;
@@ -418,7 +437,7 @@ var SimulationEngine = class {
 			if (!neighborId || !neighborId.startsWith("agent_") || neighborId === draggedId) continue;
 			const neighbor = this.agents.get(neighborId);
 			if (!neighbor) continue;
-			const utilitySnapshot = computeAgentUtility(neighbor, this.grid, this.agents, this.venues, venueScores, this.width, this.height, this.VENUE_RADIUS, this.similarityThreshold);
+			const utilitySnapshot = computeAgentUtility(neighbor, this.grid, this.agents, this.venues, venueScores, this.width, this.height, this.venueRadius, this.similarityThreshold);
 			reactions.push({
 				id: neighbor.id,
 				originalHappiness: neighbor.isHappy,
@@ -509,10 +528,10 @@ var SimulationEngine = class {
 		this.grid[hoverY][hoverX] = venueId;
 		venue.x = hoverX;
 		venue.y = hoverY;
-		const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.VENUE_RADIUS);
+		const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.venueRadius);
 		const reactions = [];
 		for (const agent of this.agents.values()) {
-			const utilitySnapshot = computeAgentUtility(agent, this.grid, this.agents, this.venues, venueScores, this.width, this.height, this.VENUE_RADIUS, this.similarityThreshold);
+			const utilitySnapshot = computeAgentUtility(agent, this.grid, this.agents, this.venues, venueScores, this.width, this.height, this.venueRadius, this.similarityThreshold);
 			if (utilitySnapshot.isHappy !== agent.isHappy) reactions.push({
 				id: agent.id,
 				originalHappiness: agent.isHappy,
@@ -751,9 +770,9 @@ var SimulationEngine = class {
 		this.venues.clear();
 	}
 	updateAllUtilities() {
-		const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.VENUE_RADIUS);
+		const venueScores = computeVenueAttendanceScores(this.venues, this.agents, this.venueRadius);
 		for (const agent of this.agents.values()) {
-			const next = computeAgentUtility(agent, this.grid, this.agents, this.venues, venueScores, this.width, this.height, this.VENUE_RADIUS, this.similarityThreshold);
+			const next = computeAgentUtility(agent, this.grid, this.agents, this.venues, venueScores, this.width, this.height, this.venueRadius, this.similarityThreshold);
 			agent.utility = next.utility;
 			agent.currentVenueId = next.currentVenueId;
 			agent.isHappy = next.isHappy;
@@ -825,30 +844,27 @@ function averageComparisonRuns(runs) {
 }
 //#endregion
 //#region src/stores/simulationStore.ts
-var engine = new SimulationEngine({
-	width: 12,
-	height: 12,
-	density: .8,
-	similarityThreshold: .5,
-	venueBoost: .2
-});
-engine.initEmptyGrid();
-var compareUserEngine = new SimulationEngine({
-	width: 12,
-	height: 12,
-	density: .8,
-	similarityThreshold: .5,
-	venueBoost: .2
-});
-var compareExemplarEngine = new SimulationEngine({
-	width: 12,
-	height: 12,
-	density: .8,
-	similarityThreshold: .5,
-	venueBoost: .2
-});
-compareUserEngine.initEmptyGrid();
-compareExemplarEngine.initEmptyGrid();
+var worldParametersStore = writable({ ...DEFAULT_WORLD_PARAMETERS });
+var visualizationStyleStore = writable("cats-and-dogs");
+function createEngineFromParameters(parameters) {
+	const nextEngine = new SimulationEngine({
+		width: parameters.width,
+		height: parameters.height,
+		density: parameters.density,
+		similarityThreshold: parameters.similarityThreshold,
+		venueRadius: parameters.venueRadius
+	});
+	nextEngine.initEmptyGrid();
+	return nextEngine;
+}
+var engine = createEngineFromParameters(DEFAULT_WORLD_PARAMETERS);
+var compareUserEngine = createEngineFromParameters(DEFAULT_WORLD_PARAMETERS);
+var compareExemplarEngine = createEngineFromParameters(DEFAULT_WORLD_PARAMETERS);
+function recreateAllEngines(parameters) {
+	engine = createEngineFromParameters(parameters);
+	compareUserEngine = createEngineFromParameters(parameters);
+	compareExemplarEngine = createEngineFromParameters(parameters);
+}
 var agentsStore = writable(Array.from(engine.agents.values()));
 var venuesStore = writable(Array.from(engine.venues.values()));
 var tickStore = writable(engine.tickCount);
@@ -943,14 +959,7 @@ function recordComparisonMetrics() {
 	compareExemplarMetricsHistoryStore.update((history) => [...history, exemplarMetrics]);
 }
 function runBackgroundTrajectory(baselineAgents, placement, ticks) {
-	const backgroundEngine = new SimulationEngine({
-		width: 12,
-		height: 12,
-		density: .8,
-		similarityThreshold: .5,
-		venueBoost: .2
-	});
-	backgroundEngine.initEmptyGrid();
+	const backgroundEngine = createEngineFromParameters(get(worldParametersStore));
 	backgroundEngine.initializeScenario(baselineAgents, placement);
 	const history = [backgroundEngine.getMetrics()];
 	for (let i = 0; i < ticks; i++) {
@@ -960,11 +969,17 @@ function runBackgroundTrajectory(baselineAgents, placement, ticks) {
 	return history;
 }
 var simulationActions = {
-	resetStabilityWindow() {
-		resetStabilityWindowBaseline();
+	setVisualizationStyle(style) {
+		visualizationStyleStore.set(style);
 	},
-	reset() {
-		engine.initEmptyGrid();
+	applyWorldParameters(nextParameters) {
+		this.stop();
+		const merged = sanitizeWorldParameters({
+			...get(worldParametersStore),
+			...nextParameters
+		});
+		worldParametersStore.set(merged);
+		recreateAllEngines(merged);
 		syncStores();
 		hoveredVenueId.set(null);
 		metricsHistoryStore.set([engine.getMetrics()]);
@@ -974,7 +989,25 @@ var simulationActions = {
 		policyBaselineAgentsSnapshot = null;
 		resetComparisonStores();
 		resetStabilityWindowBaseline();
+	},
+	resetWorldParametersToDefaults() {
+		this.applyWorldParameters(DEFAULT_WORLD_PARAMETERS);
+	},
+	resetStabilityWindow() {
+		resetStabilityWindowBaseline();
+	},
+	reset() {
 		this.stop();
+		recreateAllEngines(get(worldParametersStore));
+		syncStores();
+		hoveredVenueId.set(null);
+		metricsHistoryStore.set([engine.getMetrics()]);
+		policyTargetAveragesStore.set(null);
+		userPolicyResultStore.set(null);
+		exemplarPolicyResultStore.set(null);
+		policyBaselineAgentsSnapshot = null;
+		resetComparisonStores();
+		resetStabilityWindowBaseline();
 	},
 	step() {
 		const isStillActive = engine.tick();
@@ -1181,7 +1214,8 @@ var simulationActions = {
 			requestAnimationFrame(() => resolve());
 		});
 		try {
-			engine.generateVenuesLloyds(20);
+			const { venueCapacity } = get(worldParametersStore);
+			engine.generateVenuesLloyds(venueCapacity);
 			syncStores();
 			recordCurrentMetrics();
 			resetStabilityWindowBaseline();
@@ -1599,7 +1633,7 @@ function Sidebar($$renderer, $$props) {
 function AgentVisual($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		let isHappy, tx, ty, isWiggling, utilityWidth, barX;
+		let isHappy, tx, ty, isWiggling, species, mood, agentImagePath, utilityWidth, barX;
 		let agent = $$props["agent"];
 		let cellSize = $$props["cellSize"];
 		let boardWidth = $$props["boardWidth"];
@@ -1613,9 +1647,20 @@ function AgentVisual($$renderer, $$props) {
 		$: tx = agent.x * cellSize + cellSize / 2;
 		$: ty = agent.y * cellSize + cellSize / 2;
 		$: isWiggling = store_get($$store_subs ??= {}, "$hoveredVenueStore", hoveredVenueStore) !== null && store_get($$store_subs ??= {}, "$hoveredVenueStore", hoveredVenueStore) === agent.currentVenueId;
+		$: species = agent.color === "red" ? "cat" : "dog";
+		$: mood = isHappy ? "happy" : "sad";
+		$: agentImagePath = `/images/cat/${species}-${mood}.svg`;
 		$: utilityWidth = agent.utility * barMaxWidth;
 		$: barX = -(barMaxWidth / 2);
-		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("agent", void 0, { "draggable": isDraggable })}><g${attr_class("agent-body", void 0, { "wiggle": isWiggling })}><g class="utility-bar-group"><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", barMaxWidth)} height="5" fill="#e0e0e0" rx="2.5"></rect><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", utilityWidth)} height="5"${attr("fill", agent.color)} rx="2.5"></rect></g><circle cx="0" cy="0"${attr("r", cellSize * .35)}${attr("fill", agent.color)}${attr("stroke", isHappy ? "#111" : "#fff")}${attr("stroke-width", isHappy ? 0 : 2)}${attr("stroke-dasharray", isHappy ? "none" : "4 2")}></circle><text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none" class="emoji">${escape_html(isHappy ? "🙂" : "☹️")}</text>`);
+		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("agent", void 0, { "draggable": isDraggable })}><g${attr_class("agent-body", void 0, { "wiggle": isWiggling })}><circle cx="0" cy="0"${attr("r", cellSize * .42)} fill="transparent" pointer-events="all"></circle><g class="utility-bar-group"><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", barMaxWidth)} height="5" fill="#e0e0e0" rx="2.5"></rect><rect${attr("x", barX)}${attr("y", -cellSize * .45)}${attr("width", utilityWidth)} height="5"${attr("fill", agent.color)} rx="2.5"></rect></g>`);
+		if (store_get($$store_subs ??= {}, "$visualizationStyleStore", visualizationStyleStore) === "cats-and-dogs") {
+			$$renderer.push("<!--[0-->");
+			$$renderer.push(`<image${attr("href", agentImagePath)}${attr("x", -cellSize * .42)}${attr("y", -cellSize * .42)}${attr("width", cellSize * .84)}${attr("height", cellSize * .84)} preserveAspectRatio="xMidYMid meet" class="entity-svg"></image>`);
+		} else {
+			$$renderer.push("<!--[-1-->");
+			$$renderer.push(`<circle cx="0" cy="0"${attr("r", cellSize * .35)}${attr("fill", agent.color)}${attr("stroke", isHappy ? "#111" : "#fff")}${attr("stroke-width", isHappy ? 0 : 2)}${attr("stroke-dasharray", isHappy ? "none" : "4 2")}></circle><text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none" class="emoji">${escape_html(isHappy ? "🙂" : "☹️")}</text>`);
+		}
+		$$renderer.push(`<!--]-->`);
 		if (showProtagonistBadge) {
 			$$renderer.push("<!--[0-->");
 			$$renderer.push(`<text x="0" y="-16" text-anchor="middle" font-size="16" pointer-events="none" class="emoji">⭐</text>`);
@@ -1639,7 +1684,7 @@ function AgentVisual($$renderer, $$props) {
 function VenueVisual($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		let tx, ty, isHovered;
+		let tx, ty, species, venueImagePath, isHovered;
 		let venue = $$props["venue"];
 		let cellSize = $$props["cellSize"];
 		let boardWidth = $$props["boardWidth"];
@@ -1651,11 +1696,21 @@ function VenueVisual($$renderer, $$props) {
 		const size = cellSize - 16;
 		$: tx = venue.x * cellSize + 8;
 		$: ty = venue.y * cellSize + 8;
+		$: species = venue.color === "red" ? "cat" : "dog";
+		$: venueImagePath = `/images/cat/${species}-venue.svg`;
 		$: isHovered = store_get($$store_subs ??= {}, "$hoveredVenueStore", hoveredVenueStore) === venue.id;
 		$$renderer.push(`<g${attr("transform", `translate(${stringify(tx)},${stringify(ty)})`)}${attr_class("venue", void 0, {
 			"draggable": isDraggable,
 			"hovered": isHovered
-		})} role="button" tabindex="0"${attr("aria-label", `Venue ${stringify(venue.id)}`)}><rect x="0" y="0"${attr("width", size)}${attr("height", size)}${attr("fill", venue.color)} rx="8" opacity="0.8" stroke="#1f2937" stroke-width="0"></rect><text${attr("x", size / 2)}${attr("y", size / 2 + 2)} text-anchor="middle" dominant-baseline="central"${attr("font-size", `${stringify(size * .8)}px`)} class="emoji">🏛️</text></g>`);
+		})} role="button" tabindex="0"${attr("aria-label", `Venue ${stringify(venue.id)}`)}>`);
+		if (store_get($$store_subs ??= {}, "$visualizationStyleStore", visualizationStyleStore) === "cats-and-dogs") {
+			$$renderer.push("<!--[0-->");
+			$$renderer.push(`<rect x="0" y="0"${attr("width", size)}${attr("height", size)} fill="transparent" pointer-events="all"></rect><rect x="0" y="0"${attr("width", size)}${attr("height", size)}${attr("fill", venue.color)} rx="8" opacity="0.15" stroke="#1f2937" stroke-width="0"></rect><image${attr("href", venueImagePath)}${attr("x", 0)}${attr("y", 0)}${attr("width", size)}${attr("height", size)} preserveAspectRatio="xMidYMid meet" class="entity-svg"></image>`);
+		} else {
+			$$renderer.push("<!--[-1-->");
+			$$renderer.push(`<rect x="0" y="0"${attr("width", size)}${attr("height", size)}${attr("fill", venue.color)} rx="8" opacity="0.8" stroke="#1f2937" stroke-width="0"></rect><text${attr("x", size / 2)}${attr("y", size / 2 + 2)} text-anchor="middle" dominant-baseline="central"${attr("font-size", `${stringify(size * .8)}px`)} class="emoji">🏛️</text>`);
+		}
+		$$renderer.push(`<!--]--></g>`);
 		if ($$store_subs) unsubscribe_stores($$store_subs);
 		bind_props($$props, {
 			venue,
@@ -1674,7 +1729,7 @@ function VenueVisual($$renderer, $$props) {
 function GridWorld($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		let svgWidth, svgHeight;
+		let width, height, svgWidth, svgHeight, bgCells;
 		let agentsStore = $$props["agentsStore"];
 		let venuesStore = $$props["venuesStore"];
 		let ghostReactionsStore = $$props["ghostReactionsStore"];
@@ -1683,17 +1738,20 @@ function GridWorld($$renderer, $$props) {
 		let compactMode = fallback($$props["compactMode"], false);
 		let previewVenueMove = fallback($$props["previewVenueMove"], () => simulationActions.previewVenueMove, true);
 		let commitVenueMove = fallback($$props["commitVenueMove"], () => simulationActions.commitVenueMove, true);
-		const width = 12;
-		const height = 12;
 		let cellSize = 45;
 		onDestroy(() => {});
-		const bgCells = [];
-		for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) bgCells.push({
-			x,
-			y
-		});
+		$: width = store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).width;
+		$: height = store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).height;
 		$: svgWidth = width * cellSize;
 		$: svgHeight = height * cellSize;
+		$: bgCells = (() => {
+			const nextCells = [];
+			for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) nextCells.push({
+				x,
+				y
+			});
+			return nextCells;
+		})();
 		$$renderer.push(`<svg${attr("viewBox", `0 0 ${svgWidth} ${svgHeight}`)} preserveAspectRatio="xMidYMid meet" class="board"><g class="layer-grid"><!--[-->`);
 		const each_array = ensure_array_like(bgCells);
 		for (let $$index = 0, $$length = each_array.length; $$index < $$length; $$index++) {
@@ -1749,7 +1807,16 @@ function GridWorld($$renderer, $$props) {
 function _page($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
 		var $$store_subs;
-		$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><div class="exhibit-header-grid"><div><h1>Segregation Dynamics: An Agent-Based Model</h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></div> <div class="chapter-progress" role="navigation" aria-label="Chapter progression"><div class="chapter-progress-top"><span class="chapter-progress-label">Chapter ${escape_html(store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) + 1)} of ${escape_html(chapters.length)}</span> <div class="chapter-progress-actions"><button type="button" class="chapter-nav-btn"${attr("disabled", store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 0, true)} aria-label="Go to previous chapter">Previous</button> <button type="button" class="chapter-nav-btn"${attr("disabled", store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === chapters.length - 1, true)} aria-label="Go to next chapter">Next</button></div></div> <div class="chapter-stepper" aria-label="Chapter selection"><!--[-->`);
+		$: {
+			store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).width;
+			store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).height;
+			store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).density;
+			store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).similarityThreshold;
+			store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).venueRadius;
+			store_get($$store_subs ??= {}, "$worldParametersStore", worldParametersStore).venueCapacity;
+			store_get($$store_subs ??= {}, "$visualizationStyleStore", visualizationStyleStore);
+		}
+		$$renderer.push(`<main class="exhibit-container"><header class="exhibit-header"><div class="exhibit-header-grid"><div><h1><button type="button" class="secret-trigger-title" aria-label="Segregation Dynamics: An Agent-Based Model">Segregation Dynamics: An Agent-Based Model</button></h1> <p class="subtitle">An interactive exploranation of how local choices shape global patterns.</p></div> <div class="chapter-progress" role="navigation" aria-label="Chapter progression"><div class="chapter-progress-top"><span class="chapter-progress-label">Chapter ${escape_html(store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) + 1)} of ${escape_html(chapters.length)}</span> <div class="chapter-progress-actions"><button type="button" class="chapter-nav-btn"${attr("disabled", store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 0, true)} aria-label="Go to previous chapter">Previous</button> <button type="button" class="chapter-nav-btn"${attr("disabled", store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === chapters.length - 1, true)} aria-label="Go to next chapter">Next</button></div></div> <div class="chapter-stepper" aria-label="Chapter selection"><!--[-->`);
 		const each_array = ensure_array_like(chapters);
 		for (let chapterIndex = 0, $$length = each_array.length; chapterIndex < $$length; chapterIndex++) {
 			let chapter = each_array[chapterIndex];
@@ -1758,7 +1825,9 @@ function _page($$renderer, $$props) {
 				"is-active": chapterIndex === store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex)
 			})}${attr("aria-current", chapterIndex === store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) ? "step" : void 0)}${attr("aria-label", `Go to chapter ${chapterIndex + 1}: ${chapter.title}`)}${attr("title", `Chapter ${chapterIndex + 1}: ${chapter.title}`)}>${escape_html(chapterIndex + 1)}</button>`);
 		}
-		$$renderer.push(`<!--]--></div> <p class="chapter-progress-title">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).title)}</p></div></div></header> <div class="exhibit-content"><section${attr_class("simulation-canvas", void 0, { "chapter11-layout": store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 11 })}><div class="simulation-controls"><button class="simulation-toggle"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}${attr("aria-label", store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause simulation" : "Play simulation")}><span class="control-icon" aria-hidden="true">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "❚❚" : "▶")}</span> <span>${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Play")} simulation</span></button></div> `);
+		$$renderer.push(`<!--]--></div> <p class="chapter-progress-title">${escape_html(store_get($$store_subs ??= {}, "$currentChapter", currentChapter).title)}</p></div></div></header> `);
+		$$renderer.push("<!--[-1-->");
+		$$renderer.push(`<div class="exhibit-content"><section${attr_class("simulation-canvas", void 0, { "chapter11-layout": store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) === 11 })}><div class="simulation-controls"><button class="simulation-toggle"${attr("disabled", store_get($$store_subs ??= {}, "$isGeneratingVenuesStore", isGeneratingVenuesStore), true)}${attr("aria-label", store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause simulation" : "Play simulation")}><span class="control-icon" aria-hidden="true">${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "❚❚" : "▶")}</span> <span>${escape_html(store_get($$store_subs ??= {}, "$isPlayingStore", isPlayingStore) ? "Pause" : "Play")} simulation</span></button></div> `);
 		if (store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) >= 10) {
 			$$renderer.push("<!--[0-->");
 			$$renderer.push(`<div class="grid-compare-layout"><div class="grid-wrapper compare-grid-panel"><h3 class="compare-grid-title">Your Policy <span class="tiny-badge tiny-badge-you-strong">You</span></h3> `);
@@ -1802,7 +1871,8 @@ function _page($$renderer, $$props) {
 		} else $$renderer.push("<!--[-1-->");
 		$$renderer.push(`<!--]--></section> `);
 		Sidebar($$renderer, { showCharts: store_get($$store_subs ??= {}, "$currentChapterIndex", currentChapterIndex) !== 11 });
-		$$renderer.push(`<!----></div></main>`);
+		$$renderer.push(`<!----></div>`);
+		$$renderer.push(`<!--]--></main>`);
 		if ($$store_subs) unsubscribe_stores($$store_subs);
 	});
 }

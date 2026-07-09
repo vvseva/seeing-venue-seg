@@ -4,9 +4,8 @@
   import VenueVisual from './VenueVisual.svelte';
   import type { Agent, ReactionPreview, Venue } from '../../engine/types/models';
   import type { Writable } from 'svelte/store';
-  import { hoveredVenueId, simulationActions } from '../../stores/simulationStore';
+  import { hoveredVenueId, simulationActions, worldParametersStore } from '../../stores/simulationStore';
   import { currentChapterIndex } from '../../stores/narrativeStore'; 
-  import { WORLD_HEIGHT, WORLD_WIDTH } from '../../engine/world';
   
   type GridCell = {
     x: number;
@@ -22,8 +21,8 @@
   export let previewVenueMove: (id: string, targetX: number, targetY: number) => void = simulationActions.previewVenueMove;
   export let commitVenueMove: (id: string, targetX: number, targetY: number) => boolean = simulationActions.commitVenueMove;
 
-  const width = WORLD_WIDTH;
-  const height = WORLD_HEIGHT;
+  $: width = $worldParametersStore.width;
+  $: height = $worldParametersStore.height;
   const STANDARD_MIN_CELL_SIZE = 28;
   const STANDARD_MAX_CELL_SIZE = 60;
   const COMPACT_MIN_CELL_SIZE = 16;
@@ -76,12 +75,15 @@
   $: svgHeight = height * cellSize;
 
   // Generate background grid
-  const bgCells: GridCell[] = [];
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      bgCells.push({ x, y });
+  $: bgCells = (() => {
+    const nextCells: GridCell[] = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        nextCells.push({ x, y });
+      }
     }
-  }
+    return nextCells;
+  })();
 </script>
 
 <svg

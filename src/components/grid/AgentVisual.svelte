@@ -2,7 +2,7 @@
   import * as d3 from 'd3';
   import type { Writable } from 'svelte/store';
   import type { Agent } from '../../engine/types/models';
-  import { simulationActions } from '../../stores/simulationStore';
+  import { simulationActions, visualizationStyleStore } from '../../stores/simulationStore';
   
   export let agent: Agent;
   export let cellSize: number;
@@ -22,6 +22,9 @@
 
   // React to the venue hover state for the wiggle animation
   $: isWiggling = $hoveredVenueStore !== null && $hoveredVenueStore === agent.currentVenueId;
+  $: species = agent.color === 'red' ? 'cat' : 'dog';
+  $: mood = isHappy ? 'happy' : 'sad';
+  $: agentImagePath = `/images/cat/${species}-${mood}.svg`;
 
   // Utility bar calculations
   const barMaxWidth = cellSize * 0.7; // Scale to cell size
@@ -79,24 +82,44 @@
   class:draggable={isDraggable}
 >
   <g class="agent-body" class:wiggle={isWiggling}>
+    <circle
+      cx="0"
+      cy="0"
+      r={cellSize * 0.42}
+      fill="transparent"
+      pointer-events="all"
+    />
+
     <g class="utility-bar-group">
       <rect x={barX} y={-cellSize * 0.45} width={barMaxWidth} height="5" fill="#e0e0e0" rx="2.5" />
       <rect x={barX} y={-cellSize * 0.45} width={utilityWidth} height="5" fill={agent.color} rx="2.5" />
     </g>
 
-    <circle
-      cx="0"
-      cy="0"
-      r={cellSize * 0.35}
-      fill={agent.color}
-      stroke={isHappy ? "#111" : "#fff"}
-      stroke-width={isHappy ? 0 : 2}
-      stroke-dasharray={isHappy ? "none" : "4 2"}
-    />
+    {#if $visualizationStyleStore === 'cats-and-dogs'}
+      <image
+        href={agentImagePath}
+        x={-cellSize * 0.42}
+        y={-cellSize * 0.42}
+        width={cellSize * 0.84}
+        height={cellSize * 0.84}
+        preserveAspectRatio="xMidYMid meet"
+        class="entity-svg"
+      />
+    {:else}
+      <circle
+        cx="0"
+        cy="0"
+        r={cellSize * 0.35}
+        fill={agent.color}
+        stroke={isHappy ? "#111" : "#fff"}
+        stroke-width={isHappy ? 0 : 2}
+        stroke-dasharray={isHappy ? "none" : "4 2"}
+      />
 
-    <text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none" class="emoji">
-      {isHappy ? '🙂' : '☹️'}
-    </text>
+      <text x="0" y="6" text-anchor="middle" font-size="18" pointer-events="none" class="emoji">
+        {isHappy ? '🙂' : '☹️'}
+      </text>
+    {/if}
 
     {#if showProtagonistBadge}
       <text x="0" y="-16" text-anchor="middle" font-size="16" pointer-events="none" class="emoji">⭐</text>

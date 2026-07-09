@@ -22,6 +22,7 @@ export interface SimulationConfig {
   height?: number;
   density?: number;
   similarityThreshold?: number;
+  venueRadius?: number;
 }
 
 export interface ReactionPreview {

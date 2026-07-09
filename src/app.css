@@ -33,6 +33,25 @@ h1 {
   letter-spacing: -0.025em;
 }
 
+.secret-trigger-title {
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.secret-trigger-title:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 3px;
+}
+
 h2 {
   margin-top: 0;
   font-size: 1.25rem;
@@ -183,6 +202,63 @@ p {
   flex: 1;
   overflow: hidden;
   min-height: 0;
+}
+
+.secret-parameters-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+  background: linear-gradient(180deg, #f5f8fb 0%, #eef3f4 100%);
+}
+
+.secret-parameters-card {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.secret-parameters-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.secret-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.secret-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.86rem;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.secret-form-grid input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.48rem 0.6rem;
+  font: inherit;
+}
+
+.secret-form-grid select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.48rem 0.6rem;
+  font: inherit;
+  background: #fff;
+}
+
+.secret-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 
 /* Sidebar Structure */
@@ -402,6 +478,12 @@ p {
   pointer-events: none; /* Passes mouse events through to the group for dragging */
 }
 
+.entity-svg {
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* Charts */
 .chart-container {
   width: 100%;
@@ -618,5 +700,18 @@ p {
 
     .chapter-stepper {
       grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .secret-form-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .secret-parameters-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .secret-form-actions {
+      flex-direction: column;
     }
   }

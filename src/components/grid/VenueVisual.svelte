@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as d3 from 'd3';
   import type { Writable } from 'svelte/store';
-  import { simulationActions } from '../../stores/simulationStore';
+  import { simulationActions, visualizationStyleStore } from '../../stores/simulationStore';
   import type { Venue } from '../../engine/types/models';
   
   export let venue: Venue;
@@ -16,6 +16,8 @@
   $: tx = venue.x * cellSize + 8;
   $: ty = venue.y * cellSize + 8;
   const size = cellSize - 16;
+  $: species = venue.color === 'red' ? 'cat' : 'dog';
+  $: venueImagePath = `/images/cat/${species}-venue.svg`;
 
   function clampCell(value: number, max: number) {
     return Math.max(0, Math.min(max - 1, value));
@@ -77,26 +79,57 @@
   on:pointerenter={handleMouseEnter}
   on:pointerleave={handleMouseLeave}
 >
-  <rect
-    x="0"
-    y="0"
-    width={size}
-    height={size}
-    fill={venue.color}
-    rx="8"
-    opacity="0.8"
-    stroke="#1f2937"
-    stroke-width="0"
-  />
+  {#if $visualizationStyleStore === 'cats-and-dogs'}
+    <rect
+      x="0"
+      y="0"
+      width={size}
+      height={size}
+      fill="transparent"
+      pointer-events="all"
+    />
+    <rect
+      x="0"
+      y="0"
+      width={size}
+      height={size}
+      fill={venue.color}
+      rx="8"
+      opacity="0.15"
+      stroke="#1f2937"
+      stroke-width="0"
+    />
+    <image
+      href={venueImagePath}
+      x={0}
+      y={0}
+      width={size}
+      height={size}
+      preserveAspectRatio="xMidYMid meet"
+      class="entity-svg"
+    />
+  {:else}
+    <rect
+      x="0"
+      y="0"
+      width={size}
+      height={size}
+      fill={venue.color}
+      rx="8"
+      opacity="0.8"
+      stroke="#1f2937"
+      stroke-width="0"
+    />
 
-  <text
-    x={size / 2}    
-    y={size / 2 + 2}
-    text-anchor="middle"
-    dominant-baseline="central"
-    font-size="{size * 0.8}px"
-    class="emoji"
-  >
-    🏛️
-  </text>
+    <text
+      x={size / 2}    
+      y={size / 2 + 2}
+      text-anchor="middle"
+      dominant-baseline="central"
+      font-size="{size * 0.8}px"
+      class="emoji"
+    >
+      🏛️
+    </text>
+  {/if}
 </g>
